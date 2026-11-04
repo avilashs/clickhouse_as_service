@@ -8,6 +8,7 @@ Every third-party dependency must have a licence compatible with Apache-2.0 **an
 | Altinity clickhouse-operator `release-0.27.x` | Operator | Apache-2.0 | ✓ (2026-11-04) | ADR-0002 |
 | ClickHouse Inc. clickhouse-operator | Evaluated, not used | Apache-2.0 | ✓ (2026-11-04) | `v1alpha1`; revisit |
 | Kubernetes / EKS | Orchestration | Apache-2.0 | – | |
+| kube-network-policies v1.1.3 (kubernetes-sigs) | NetworkPolicy enforcement in local kind cells only (kindnet ignores NetworkPolicy) | Apache-2.0 | ✓ (2026-11-04) | Built from the tagged source by `hack/build-netpol.sh`; the upstream image is on registry.k8s.io. Not used in cloud cells. |
 | Karpenter | Node provisioning | Apache-2.0 | – | |
 | Cilium | CNI, NetworkPolicy, FQDN egress, bandwidth | Apache-2.0 (eBPF parts dual GPL/BSD) | – | Pending Q10 |
 | gVisor | Sandbox | Apache-2.0 | – | ADR-0003 |

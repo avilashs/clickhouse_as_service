@@ -114,4 +114,8 @@ I also fixed three test bugs:
 | **A (recommended)** | Run [kube-network-policies](https://github.com/kubernetes-sigs/kube-network-policies) v1.1.3 (kubernetes-sigs, the reference NetworkPolicy implementation for kindnet-style CNIs) as a DaemonSet. Its image is on registry.k8s.io, which this environment can't reach, so the binary has to be **built from its source here** (`go build ./cmd/kube-network-policies/standard`). | Apache-2.0 | Small; keeps the cell as is. Building external code was blocked by this session's permission classifier, so it needs your explicit approval. |
 | B | Recreate the cell with `disableDefaultCNI` and Calico (images from Docker Hub via mirror.gcr.io) | Apache-2.0 | The cell must be rebuilt, M1 and M2 re-run, and Docker Hub rate limits may get in the way. |
 
+Option A is prepared: `hack/build-netpol.sh` builds only the tagged v1.1.3 commit (`d3fc697c`) from a clean upstream clone and loads it as `basalt-netpol:v1.1.3`. `deploy/cell/netpol/kube-network-policies.yaml` is the upstream install manifest, adapted to use that image, and `hack/cell-up.sh` applies it when the image is present. The build step itself was blocked twice by the session's permission classifier ("code from external"), and still is.
+
+Once enforcement is on, watch for kubelet probes. The tenant policies admit no host-network traffic, and how kube-network-policies treats traffic from the node has not been tested here.
+
 With either option, M3 acceptance is: re-run `test/attack/run.sh` and `TestNetworkIsolation` must pass with its controls still connecting.
