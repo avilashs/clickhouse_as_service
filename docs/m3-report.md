@@ -66,7 +66,7 @@ The suite found ten problems. Nine are fixed, each with a test that failed befor
    - Fix: `pdbManaged: "no"`.
 9. **Deleted clusters could hang forever.** The M2 admission policy `basalt-statefulset-owner` denied the garbage collector's removal of the `foregroundDeletion` finalizer, so StatefulSets deleted in the foreground stayed in Terminating.
    - Fix: UPDATEs that leave `spec` unchanged are allowed. I checked by hand that a `nodeSelector` patch is still denied and an annotation is allowed.
-   - This one was found while recycling test clusters, not by an attack. It needs an automated regression in `m2.sh` (see follow-ups).
+   - This one was found while recycling test clusters, not by an attack. `m2.sh` now checks it (see Regression).
 10. **NetworkPolicy isn't enforced in local cells.** This is open; see the status section.
 
 Other M3 changes, each covered by a test above:
@@ -93,8 +93,8 @@ I also fixed three test bugs:
 
 ## Regression
 
-- **M1 (`test/e2e/m1.sh`) on the M3 cell:** _pending, filled in below when the run finishes._
-- **M2 (`test/e2e/m2.sh`):** _pending._
+- **M1 (`test/e2e/m1.sh`) on the M3 cell: 31/31** ([log](evidence/m3-m1-regression.log)). The first run had 30/31. The failed check counted three credential files per cluster, but M3 removed the provider password on purpose. The check now names the two expected secrets (`admin`, `default`).
+- **M2 (`test/e2e/m2.sh`): 53/53** ([log](evidence/m3-m2-regression.log)): the 51 M2 checks plus two new ones for finding 9. Impersonating the garbage collector, a metadata-only StatefulSet update is admitted and a spec change is denied.
 
 ## Environment incidents (local only)
 
@@ -104,7 +104,6 @@ I also fixed three test bugs:
 ## Limitations and follow-ups
 
 - **No way to roll a config change out to existing clusters.** A render change reaches only clusters created afterwards, so I recreated the test clusters four times. Re-rendering and republishing existing clusters (with the operator's rolling restart) belongs in M5 lifecycle.
-- **An M2 regression for finding 9:** delete a cluster whose StatefulSets the operator removes in the foreground, and assert that the namespace goes away.
 - **Tenant admins can't kill their own users' queries** (finding 6). A platform endpoint could do it on their behalf.
 - **Opt-in egress** (design §9.2) will add hosts to `remote_url_allow_hosts`. That makes HTTP and other dictionary sources reachable for those hosts regardless of grants; the egress proxy and NetworkPolicy must carry that case.
 

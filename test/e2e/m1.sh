@@ -109,7 +109,8 @@ check "exactly one desired-state row"   test "$(sql "SELECT count(*) FROM desire
 check "exactly one workflow run"        test "$(temporal workflow list --query "WorkflowId='cluster/$C2'" -o json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" = 1
 check "exactly one namespace"           test "$(kubectl get ns -l basalt.io/cluster=$C2 --no-headers | wc -l)" = 1
 check "exactly one CHI and one CHK"     test "$(kubectl -n ch-$C2 get chi,chk --no-headers | wc -l)" = 2
-check "exactly one set of credentials"  test "$(find "$BASALT_SECRETS_DIR/clusters/$C2" -name '*.sec' | wc -l)" = 3
+# default and admin passwords only: since M3 the provider user authenticates by certificate
+check "exactly one set of credentials"  test "$(cd "$BASALT_SECRETS_DIR/clusters/$C2" && find . -name '*.sec' | sort | tr '\n' ' ')" = "./admin.sec ./default.sec "
 RETRIED=$(temporal workflow show --workflow-id "cluster/$C2" -o json | python3 -c '
 import json,sys
 h=json.load(sys.stdin)

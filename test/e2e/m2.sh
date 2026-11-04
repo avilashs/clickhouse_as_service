@@ -152,6 +152,13 @@ check "rejects a non-ClickHouse pod tolerating the shared pool" NP np3 '{"spec":
 check "rejects a tenant-namespace pod tolerating the control pool" NP np4 '{"spec":{"tolerations":[{"key":"basalt.io/pool","operator":"Equal","value":"control","effect":"NoSchedule"}]}}' "control pool"
 check "rejects a ClickHouse StatefulSet not written by the operator" \
   bash -c "python3 -c 'import json,sys; s=json.load(open(\"$WORK/sts-d.json\")); m=s[\"metadata\"]; s[\"metadata\"]={\"name\":\"e2e-rogue\",\"namespace\":m[\"namespace\"]}; s.pop(\"status\",None); print(json.dumps(s))' > $WORK/rogue.json; kubectl create --dry-run=server -f $WORK/rogue.json 2>&1 | grep -q 'managed by the operator only'"
+GC_AS=(--as=system:serviceaccount:kube-system:generic-garbage-collector --as-group=system:serviceaccounts --as-group=system:serviceaccounts:kube-system)
+# M3 finding: denying the garbage collector's metadata-only updates (finalizer removal) left
+# foreground-deleted StatefulSets, and with them whole clusters, stuck forever
+check "admits a metadata-only StatefulSet update by the garbage collector" \
+  bash -c "kubectl -n ch-$D annotate $STS_D basalt.io/e2e=1 --dry-run=server ${GC_AS[*]} 2>&1 | grep -q annotated"
+check "rejects a StatefulSet spec change by the garbage collector" \
+  bash -c "kubectl -n ch-$D patch $STS_D --type=merge -p '{\"spec\":{\"template\":{\"spec\":{\"nodeSelector\":{\"e2e\":\"x\"}}}}}' --dry-run=server ${GC_AS[*]} 2>&1 | grep -q 'managed by the operator only'"
 
 echo "== 4. continuous audit"
 check "basalt-audit: no violations with both clusters running" bash -c "bin/basalt-audit --once >/dev/null"
