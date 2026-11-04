@@ -26,6 +26,12 @@ Every third-party dependency must have a licence compatible with Apache-2.0 **an
 | kind | Local clusters | Apache-2.0 | – | |
 | OpenTofu | Cell provisioning | MPL-2.0 | – | Tool only, not linked |
 | clickhouse-backup | Evaluated, not used | MIT | – | ADR-0006 |
-| query optimizer (yours) | Advisor | **unknown** | – | ADR-0008, Q2 |
+| query_optimizer (`avilashs/query_optimizer@0d86d10`) | AI query advisor, run as a CronJob | MIT (declared in `pyproject.toml`; **no LICENSE file**, Q2b) | – | ADR-0008 |
+| pydantic, PyYAML | optimizer dependencies | MIT | – | |
+| requests | optimizer dependency | Apache-2.0 | – | |
+| clickhouse-connect | optimizer ClickHouse driver | Apache-2.0 | – | |
+| Envoy AI Gateway | LLM gateway (candidate) | Apache-2.0 | – | ADR-0008 §6; to evaluate in M-opt |
+| LiteLLM proxy | LLM gateway (alternative) | MIT core; enterprise features under a separate licence | – | Only the MIT core would be usable |
+| LLM providers (Azure AI Foundry, Anthropic, OpenAI, …) | External services, not libraries | Commercial terms and DPAs | – | Q2a: which may process tenant data |
 
 Excluded on licence grounds: none so far. Licences that would be rejected for linked or bundled code: SSPL, BSL/BUSL, Elastic License, Commons Clause.

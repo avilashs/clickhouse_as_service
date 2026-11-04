@@ -9,7 +9,7 @@ We need an operator that manages ClickHouse servers and Keeper per tenant cluste
 | | Altinity `clickhouse-operator` | ClickHouse Inc. `clickhouse-operator` |
 |---|---|---|
 | License | Apache-2.0 (LICENSE file read) | Apache-2.0, "Copyright 2016-2026 ClickHouse, Inc." (LICENSE file read) |
-| Release history | Tags up to `release-0.27.4`, last commit 2026-09-24; about 100 tags over many years | Tags `v0.0.1` … `v0.0.8`; last commit 2026-11-03 |
+| Release history | Tags up to `release-0.27.4`, last commit 2026-09-24; dozens of releases over many years | Tags `v0.0.1` … `v0.0.8`; last commit 2026-11-03 |
 | API maturity | `clickhouse.altinity.com/v1` (CHI), `clickhouse-keeper.altinity.com/v1` (CHK); CHI→CHK direct reference since 0.27.0 ("GA-level Keeper support") | **`v1alpha1`** `ClickHouseCluster` / `KeeperCluster` |
 | Keeper | CHK resource; per-CHI reference | `KeeperCluster` with replicas ∈ {1,3,5,…}; exactly one of `keeperClusterRef`/`externalKeeper`; each ClickHouseCluster needs its own KeeperCluster |
 | Pod template | Full `podTemplates` (arbitrary PodSpec, incl. `runtimeClassName`, affinity, tolerations, topology spread) | `podTemplate` with affinity, tolerations, `runtimeClassName`, `securityContext`, volumes, init containers; plus convenience fields: `topologyZoneKey` (required zone spread for replicas of one shard), `topologyMinDomains`, and `nodeHostnameKey` (required anti-affinity across **all pods of the cluster**, i.e. one pod per node) |

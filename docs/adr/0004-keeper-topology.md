@@ -11,7 +11,7 @@ Status: Proposed. Date: 2026-11-04
 * Not shared between tenants in v1. Keeper isn't embedded in server pods for HA sizes (a hostile query crashing the server would take a voter with it).
 
 ## Cost
-See design §7.3. At about $37/month per HA tenant, Keeper is about 50% of the `s-2` compute cost and about 12% of `s-8`. Pricing for small sizes must include it.
+See design §7.3. At about $37/month per HA tenant, Keeper is about **33%** of the `s-2` compute cost, 17% of `s-4` and 8% of `s-8`. A single-node dev Keeper is about 24% of `dev-1`. Pricing for small sizes must include it. (Rev 1 said 50% and 12%; that was an arithmetic error, now corrected.)
 
 ## Revisit triggers
 If the share of tenants on `dev-1`/`s-2` makes Keeper a dominant cost line, evaluate (in order): denser Keeper pods (0.1 vCPU requests), then a shared Keeper with per-tenant chroot, ACLs and per-tenant request rate limits. The latter needs a fresh threat-model review.

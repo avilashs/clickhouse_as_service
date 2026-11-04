@@ -21,7 +21,9 @@ Status: Proposed. Date: 2026-11-04
 
 Mechanics: `BACKUP DATABASE … ON CLUSTER default TO S3('<prefix>/<id>', …) SETTINGS base_backup = …, async = 1`, then poll `system.backups` on every host. Weekly full, daily incremental, and on-demand. A chain is deleted only when no live backup references it.
 
-Isolation: per-cell bucket, per-cluster prefix, per-cluster IAM role scoped to that prefix (EKS Pod Identity), bucket policy that allows access only via the VPC endpoint, SSE-KMS. Customers don't get `BACKUP`/`RESTORE` grants.
+Isolation: per-cell bucket, per-cluster prefix, bucket policy that allows access only via the VPC endpoint, SSE-KMS. Customers don't get `BACKUP`/`RESTORE` grants (tested: denied).
+
+Credentials (rev 2): **no ambient cloud credentials in server pods.** Rev 1's Pod Identity role conflicted with "no SA token" and with the link-local egress deny, and would have exposed credentials to tenant SQL. Per operation, the workflow mints STS credentials with a session policy scoped to the cluster's prefix. It writes them into a provider-only named collection `basalt_backup` (`url, access_key_id, secret_access_key, session_token`), runs `BACKUP … TO S3(basalt_backup, '<id>')`, then drops the collection. Tested on 26.8.34: the session token is sent as `x-amz-security-token`; tenants can't use or list the collection; secrets are shown as `[HIDDEN]` in `query_log`. The positional `S3(url, key, secret)` form accepts only 1 or 3 arguments, so a session token needs the named collection.
 
 Consistency: documented as per-shard snapshots taken at slightly different moments; no cross-shard atomicity.
 
