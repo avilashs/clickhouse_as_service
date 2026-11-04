@@ -187,7 +187,7 @@ func (e Engine) Render(in engine.RenderInput) (engine.Desired, error) {
 		SQL: &engine.SQLTarget{
 			Hosts: sqlHosts, Port: nativeTLSPort, User: ProviderUser, ClientCertificateCN: AgentClientCN, CASecret: certSecret,
 		},
-		Bootstrap: bootstrapSQL(c.ID),
+		Bootstrap: bootstrapSQL(c.ID, size, c.Spec.StorageGiB),
 		Expect: engine.Expectation{
 			Pods:        len(serverHosts) + size.KeeperReplicas,
 			ServerHosts: len(serverHosts),
@@ -386,12 +386,14 @@ func toleration(key, value string) map[string]any {
 
 func server(n names, c model.Cluster, size model.Size, cell model.Cell) engine.Object {
 	vol, mount := certVolume()
+	image := "clickhouse/clickhouse-server:" + c.Spec.ServerVersion
 	podSpec := map[string]any{
 		"automountServiceAccountToken": false,
 		"securityContext":              podSecurity(),
+		"initContainers":               serverInitContainers(n, image, c.Spec.StorageGiB, cell.Profile == "local"),
 		"containers": []any{map[string]any{
 			"name":            "clickhouse",
-			"image":           "clickhouse/clickhouse-server:" + c.Spec.ServerVersion,
+			"image":           image,
 			"imagePullPolicy": "IfNotPresent",
 			"securityContext": containerSecurity(),
 			"resources": map[string]any{
@@ -450,7 +452,7 @@ func server(n names, c model.Cluster, size model.Size, cell model.Cell) engine.O
 					"layout": map[string]any{"shardsCount": c.Spec.Shards, "replicasCount": c.Spec.ReplicasPerShard},
 				}},
 				"users":    users(),
-				"profiles": profiles(size),
+				"profiles": profiles(size, c.Spec.StorageGiB),
 				"settings": serverSettings(n, c, size, cell),
 				"files":    map[string]any{"basalt-openssl.xml": opensslXML, "basalt-access.xml": accessXML, "users.d/zz-basalt-default-user.xml": defaultUserXML},
 			},
@@ -504,9 +506,9 @@ func serverMemoryLimit(size model.Size) int64 { return size.MemoryBytes * 85 / 1
 
 // Tenant limits live in the server default profile, so users the tenant creates without any
 // role or profile inherit them (review A1, tested).
-func profiles(size model.Size) map[string]any {
+func profiles(size model.Size, storageGiB int) map[string]any {
 	mem := strconv.FormatInt(size.MemoryBytes*8/10, 10) // per-query cap: 80% of the pod's memory
-	return map[string]any{
+	p := map[string]any{
 		"default/max_memory_usage":                                                                     mem,
 		"default/max_memory_usage_for_user":                                                            mem,
 		"default/allow_introspection_functions":                                                        0,
@@ -530,6 +532,10 @@ func profiles(size model.Size) map[string]any {
 		"provider/constraints/max_concurrent_queries_for_user/changeable_in_readonly":                  "",
 		"provider/constraints/database_replicated_allow_only_replicated_engine/changeable_in_readonly": "",
 	}
+	for k, v := range stabilityProfile(storageGiB) {
+		p[k] = v
+	}
+	return p
 }
 
 func serverSettings(n names, c model.Cluster, size model.Size, cell model.Cell) map[string]any {
@@ -566,11 +572,53 @@ func serverSettings(n names, c model.Cluster, size model.Size, cell model.Cell) 
 		// startup self-check of its executable fails (code 246) and the server exits (M2 spike).
 		s["skip_binary_checksum_checks"] = 1
 	}
+	for k, v := range stabilityServerSettings(size, c.Spec.StorageGiB, c.Spec.Tier, cell.Profile == "local") {
+		s[k] = v
+	}
 	return s
 }
 
 // denyAllHost is the single remote_url_allow_hosts entry: a name that cannot exist.
 const denyAllHost = "basalt-no-egress.invalid"
+
+// waitForKeeperScript blocks until the Keeper client Service has a ready endpoint. A server with
+// replicated access storage exits with code 231 when Keeper is unreachable at startup (M1
+// finding, confirmed in the upstream source: two attempts, then the constructor throws), and
+// the kubelet then backs off for up to five minutes. Waiting in an init container turns that
+// into a pod that starts within seconds of quorum returning. The Keeper Service has endpoints
+// only for ready Keeper pods, which the operator probes with /ready.
+func waitForKeeperScript(n names) string {
+	return fmt.Sprintf(`until (exec 3<>/dev/tcp/%s/%d) 2>/dev/null; do echo "waiting for Keeper quorum"; sleep 2; done`,
+		n.keeperService(), keeperClientPort)
+}
+
+// balloonScript creates the emergency-release file (design §10 "Disk full"): once, as a real
+// allocation, never re-created when the volume is full.
+func balloonScript(storageGiB int, local bool) string {
+	want := DiskReserveBytes(storageGiB, local)
+	return fmt.Sprintf(`f=%s; want=%d
+if [ "$(stat -c %%s "$f" 2>/dev/null || echo 0)" -lt "$want" ]; then
+  rm -f "$f"; fallocate -l "$want" "$f" 2>/dev/null || head -c "$want" /dev/zero > "$f"
+fi`, BalloonPath, want)
+}
+
+func serverInitContainers(n names, image string, storageGiB int, local bool) []any {
+	res := map[string]any{
+		"requests": map[string]any{"cpu": "100m", "memory": "64Mi"},
+		"limits":   map[string]any{"cpu": "100m", "memory": "64Mi"},
+	}
+	mk := func(name, script string, mounts ...any) map[string]any {
+		return map[string]any{
+			"name": name, "image": image, "imagePullPolicy": "IfNotPresent",
+			"command":         []any{"bash", "-c", script},
+			"securityContext": containerSecurity(), "resources": res, "volumeMounts": mounts,
+		}
+	}
+	return []any{
+		mk("wait-for-keeper", waitForKeeperScript(n)),
+		mk("balloon", balloonScript(storageGiB, local), map[string]any{"name": "data", "mountPath": "/var/lib/clickhouse"}),
+	}
+}
 
 func secretKeyRef(name, key string) map[string]any {
 	return map[string]any{"valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": name, "key": key}}}

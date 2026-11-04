@@ -1,6 +1,9 @@
 package clickhouse
 
-import "github.com/avilashs/clickhouse_as_service/internal/engine"
+import (
+	"github.com/avilashs/clickhouse_as_service/internal/engine"
+	"github.com/avilashs/clickhouse_as_service/internal/model"
+)
 
 // tableEngines a tenant may use (ADR-0007). With access_control_improvements.
 // table_engines_require_grant = true, everything else, including plain MergeTree and
@@ -14,7 +17,7 @@ var tableEngines = []string{
 // bootstrapSQL creates the customer_admin role (design §9.3) and the tenant's initial admin
 // user in replicated access storage. Every statement is idempotent; the agent re-runs the
 // whole list whenever the desired payload changes. Each statement was verified on 26.8.34.
-func bootstrapSQL(clusterID string) []string {
+func bootstrapSQL(clusterID string, size model.Size, storageGiB int) []string {
 	engines := ""
 	for i, e := range tableEngines {
 		if i > 0 {
@@ -43,7 +46,12 @@ func bootstrapSQL(clusterID string) []string {
 		"GRANT CLUSTER ON *.* TO customer_admin",
 		"GRANT " + engines + " TO customer_admin WITH GRANT OPTION",
 		"GRANT CREATE USER, ALTER USER, DROP USER, CREATE ROLE, ALTER ROLE, DROP ROLE, CREATE ROW POLICY, ALTER ROW POLICY, " +
-			"DROP ROW POLICY, CREATE QUOTA, ALTER QUOTA, DROP QUOTA, SHOW ACCESS ON *.* TO customer_admin",
+			"DROP ROW POLICY, SHOW ACCESS ON *.* TO customer_admin",
+		// The platform quota is shared by every tenant user, and quotas cannot be scoped: whoever
+		// may ALTER or DROP a quota may remove ours. So tenants do not manage quotas (M4). The
+		// REVOKE also covers clusters bootstrapped by M3, which granted them.
+		"REVOKE CREATE QUOTA, ALTER QUOTA, DROP QUOTA ON *.* FROM customer_admin",
+		quotaSQL(size, storageGiB),
 		"REVOKE CREATE ROW POLICY, ALTER ROW POLICY, DROP ROW POLICY ON system.* FROM customer_admin",
 		"GRANT SYSTEM FLUSH LOGS, SYSTEM SYNC REPLICA, SYSTEM DROP QUERY CACHE, SYSTEM MERGES, SYSTEM TTL MERGES, " +
 			"SYSTEM MOVES, SYSTEM FETCHES, SYSTEM RESTART REPLICA ON *.* TO customer_admin",

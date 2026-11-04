@@ -20,8 +20,12 @@ bootstrap:
   ON Join, TABLE ENGINE ON Buffer, TABLE ENGINE ON Dictionary, TABLE ENGINE ON Merge
   TO customer_admin WITH GRANT OPTION
 - GRANT CREATE USER, ALTER USER, DROP USER, CREATE ROLE, ALTER ROLE, DROP ROLE, CREATE
-  ROW POLICY, ALTER ROW POLICY, DROP ROW POLICY, CREATE QUOTA, ALTER QUOTA, DROP QUOTA,
-  SHOW ACCESS ON *.* TO customer_admin
+  ROW POLICY, ALTER ROW POLICY, DROP ROW POLICY, SHOW ACCESS ON *.* TO customer_admin
+- REVOKE CREATE QUOTA, ALTER QUOTA, DROP QUOTA ON *.* FROM customer_admin
+- CREATE QUOTA OR REPLACE basalt_default FOR INTERVAL 1 hour MAX queries = 180000,
+  errors = 30000, result_rows = 5000000000, read_rows = 200000000000, read_bytes =
+  2199023255552, execution_time = 14400, written_bytes = 10737418240 TO ALL EXCEPT
+  provider_ops, default, clickhouse_operator
 - REVOKE CREATE ROW POLICY, ALTER ROW POLICY, DROP ROW POLICY ON system.* FROM customer_admin
 - GRANT SYSTEM FLUSH LOGS, SYSTEM SYNC REPLICA, SYSTEM DROP QUERY CACHE, SYSTEM MERGES,
   SYSTEM TTL MERGES, SYSTEM MOVES, SYSTEM FETCHES, SYSTEM RESTART REPLICA ON *.* TO
@@ -460,22 +464,35 @@ objects:
             </users>
           </clickhouse>
       profiles:
+        clickhouse_operator/constraints/log_queries/changeable_in_readonly: ""
         default/allow_introspection_functions: 0
         default/async_insert: 1
         default/constraints/allow_introspection_functions/const: ""
         default/constraints/database_replicated_allow_only_replicated_engine/const: ""
+        default/constraints/log_queries/const: ""
         default/constraints/max_concurrent_queries_for_user/max: 50
         default/constraints/max_memory_usage/max: "1717986918"
         default/constraints/max_memory_usage/min: 1
         default/constraints/max_memory_usage_for_user/max: "1717986918"
         default/constraints/max_memory_usage_for_user/min: 1
+        default/constraints/max_partitions_per_insert_block/max: 500
+        default/constraints/max_temporary_data_on_disk_size_for_query/max: "268435456"
+        default/constraints/max_temporary_data_on_disk_size_for_user/max: "536870912"
         default/constraints/max_threads/max: 2
+        default/constraints/query_profiler_cpu_time_period_ns/const: ""
+        default/constraints/query_profiler_real_time_period_ns/const: ""
         default/constraints/wait_for_async_insert/const: ""
         default/database_replicated_allow_only_replicated_engine: 1
+        default/log_queries: 1
         default/max_concurrent_queries_for_user: 50
         default/max_memory_usage: "1717986918"
         default/max_memory_usage_for_user: "1717986918"
+        default/max_partitions_per_insert_block: 100
+        default/max_temporary_data_on_disk_size_for_query: "268435456"
+        default/max_temporary_data_on_disk_size_for_user: "536870912"
         default/max_threads: 2
+        default/query_profiler_cpu_time_period_ns: 0
+        default/query_profiler_real_time_period_ns: 0
         default/wait_for_async_insert: 1
         provider/constraints/database_replicated_allow_only_replicated_engine/changeable_in_readonly: ""
         provider/constraints/max_concurrent_queries_for_user/changeable_in_readonly: ""
@@ -488,19 +505,71 @@ objects:
         access_control_improvements/select_from_system_db_requires_grant: true
         access_control_improvements/settings_constraints_replace_previous: true
         access_control_improvements/table_engines_require_grant: true
+        aggregated_zookeeper_log/ttl: event_date + INTERVAL 7 DAY
+        asynchronous_insert_log/ttl: event_date + INTERVAL 7 DAY
+        asynchronous_metric_log/ttl: event_date + INTERVAL 3 DAY
+        background_common_pool_size: 2
+        background_fetches_pool_size: 2
+        background_merges_mutations_concurrency_ratio: 2
+        background_move_pool_size: 2
+        background_pool_size: 2
+        background_schedule_pool_log/ttl: event_date + INTERVAL 3 DAY
+        background_schedule_pool_size: 32
+        backup_log/ttl: event_date + INTERVAL 30 DAY
+        blob_storage_log/ttl: event_date + INTERVAL 7 DAY
+        concurrent_threads_soft_limit_num: 4
+        crash_log/ttl: event_date + INTERVAL 30 DAY
+        delta_lake_metadata_log/ttl: event_date + INTERVAL 3 DAY
+        error_log/ttl: event_date + INTERVAL 7 DAY
         http_port: _removed_
         https_port: 8443
+        iceberg_metadata_log/ttl: event_date + INTERVAL 3 DAY
         interserver_http_port: _removed_
         interserver_https_port: 9010
         listen_host: 0.0.0.0
         max_concurrent_queries: 50
+        max_database_num_to_throw: 100
+        max_dictionary_num_to_throw: 200
+        max_partition_size_to_drop: 0
         max_server_memory_usage: 1825361100
+        max_table_num_to_throw: 500
+        max_table_size_to_drop: 0
+        max_view_num_to_throw: 500
+        merge_tree/max_delay_to_insert: 1
+        merge_tree/max_parts_in_total: 100000
+        merge_tree/number_of_free_entries_in_pool_to_execute_mutation: 2
+        merge_tree/number_of_free_entries_in_pool_to_execute_optimize_entire_partition: 3
+        merge_tree/number_of_free_entries_in_pool_to_lower_max_size_of_merge: 1
+        merge_tree/parts_to_delay_insert: 1000
+        merge_tree/parts_to_throw_insert: 3000
+        metric_log/ttl: event_date + INTERVAL 3 DAY
         mysql_port: _removed_
+        opentelemetry_span_log/engine: engine MergeTree partition by toYYYYMM(finish_date)
+          order by (finish_date, finish_time_us) TTL finish_date + interval 3 day
+        part_log/engine: Engine = MergeTree PARTITION BY event_date ORDER BY event_time
+          TTL event_date + interval 7 day
         postgresql_port: _removed_
+        processors_profile_log/ttl: event_date + INTERVAL 3 DAY
+        query_log/engine: Engine = MergeTree PARTITION BY event_date ORDER BY event_time
+          TTL event_date + interval 14 day
+        query_metric_log/ttl: event_date + INTERVAL 3 DAY
+        query_views_log/ttl: event_date + INTERVAL 7 DAY
         remote_url_allow_hosts/host: basalt-no-egress.invalid
+        s3queue_log/ttl: event_date + INTERVAL 3 DAY
+        session_log/database: system
+        session_log/flush_interval_milliseconds: 7500
+        session_log/partition_by: toYYYYMM(event_date)
+        session_log/table: session_log
+        session_log/ttl: event_date + INTERVAL 30 DAY
+        storage_configuration/disks/default/keep_free_space_bytes: 67108864
         tcp_port: _removed_
         tcp_port_secure: 9440
+        text_log/level: information
+        text_log/ttl: event_date + INTERVAL 3 DAY
+        trace_log/engine: Engine = MergeTree PARTITION BY event_date ORDER BY event_time
+          TTL event_date + interval 3 day
         user_scripts_path: /nonexistent/basalt-no-user-scripts/
+        zookeeper_connection_log/ttl: event_date + INTERVAL 7 DAY
       users:
         default/grants/query:
         - GRANT SELECT ON system.one
@@ -581,6 +650,54 @@ objects:
             - mountPath: /etc/basalt/certs
               name: certs
               readOnly: true
+          initContainers:
+          - command:
+            - bash
+            - -c
+            - until (exec 3<>/dev/tcp/keeper-cded1234abcd/2281) 2>/dev/null; do echo
+              "waiting for Keeper quorum"; sleep 2; done
+            image: clickhouse/clickhouse-server:26.8.34.13
+            imagePullPolicy: IfNotPresent
+            name: wait-for-keeper
+            resources:
+              limits:
+                cpu: 100m
+                memory: 64Mi
+              requests:
+                cpu: 100m
+                memory: 64Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts: null
+          - command:
+            - bash
+            - -c
+            - |-
+              f=/var/lib/clickhouse/.basalt-balloon; want=67108864
+              if [ "$(stat -c %s "$f" 2>/dev/null || echo 0)" -lt "$want" ]; then
+                rm -f "$f"; fallocate -l "$want" "$f" 2>/dev/null || head -c "$want" /dev/zero > "$f"
+              fi
+            image: clickhouse/clickhouse-server:26.8.34.13
+            imagePullPolicy: IfNotPresent
+            name: balloon
+            resources:
+              limits:
+                cpu: 100m
+                memory: 64Mi
+              requests:
+                cpu: 100m
+                memory: 64Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - mountPath: /var/lib/clickhouse
+              name: data
           nodeSelector:
             basalt.io/dedicated-cluster: cded1234abcd
             basalt.io/pool: dedicated
