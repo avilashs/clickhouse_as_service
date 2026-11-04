@@ -24,6 +24,18 @@ fi
 if ! kind get clusters | grep -qx "$CLUSTER"; then
   docker image inspect kindest/node:v1.33.1 >/dev/null 2>&1 || docker pull kindest/node:v1.33.1
   kind create cluster --name "$CLUSTER" --config deploy/kind/cell-kind.yaml --image kindest/node:v1.33.1 --wait 240s
+  # Pin every node's address: Docker hands out IPs again in start order after a daemon or VM
+  # restart, and the cell breaks (nodes, DNS, volume binding, Envoy xDS) when they move.
+  # A static address on the kind network survives restarts.
+  nodes=$(kind get nodes --name "$CLUSTER")
+  declare -A ips
+  for n in $nodes; do ips[$n]=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind").IPAddress}}' "$n"); done
+  docker stop $nodes >/dev/null
+  for n in $nodes; do docker network disconnect kind "$n"; done
+  for n in $nodes; do docker network connect --ip "${ips[$n]}" kind "$n"; done
+  docker start $nodes >/dev/null
+  until kubectl --context "kind-$CLUSTER" get nodes >/dev/null 2>&1; do sleep 2; done
+  kubectl --context "kind-$CLUSTER" wait --for=condition=Ready nodes --all --timeout=240s >/dev/null
 fi
 kubectl config use-context "kind-$CLUSTER" >/dev/null
 
