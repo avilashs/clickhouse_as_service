@@ -114,8 +114,16 @@ I also fixed three test bugs:
 | **A (recommended)** | Run [kube-network-policies](https://github.com/kubernetes-sigs/kube-network-policies) v1.1.3 (kubernetes-sigs, the reference NetworkPolicy implementation for kindnet-style CNIs) as a DaemonSet. Its image is on registry.k8s.io, which this environment can't reach, so the binary has to be **built from its source here** (`go build ./cmd/kube-network-policies/standard`). | Apache-2.0 | Small; keeps the cell as is. Building external code was blocked by this session's permission classifier, so it needs your explicit approval. |
 | B | Recreate the cell with `disableDefaultCNI` and Calico (images from Docker Hub via mirror.gcr.io) | Apache-2.0 | The cell must be rebuilt, M1 and M2 re-run, and Docker Hub rate limits may get in the way. |
 
-Option A is prepared: `hack/build-netpol.sh` builds only the tagged v1.1.3 commit (`d3fc697c`) from a clean upstream clone and loads it as `basalt-netpol:v1.1.3`. `deploy/cell/netpol/kube-network-policies.yaml` is the upstream install manifest, adapted to use that image, and `hack/cell-up.sh` applies it when the image is present. The build step itself was blocked twice by the session's permission classifier ("code from external"), and still is.
+**Option A was approved, built and deployed, and does not work on this VM.** The binary was built from the tagged commit (`d3fc697c`) and ran on all 10 nodes. Every instance exited with `could not open nfqueue socket: netlink receive: operation not supported`. kube-network-policies hands each new connection to userspace through the nftables `queue` statement, and this VM's kernel (6.18.44-fc) is built without `CONFIG_NFT_QUEUE`. NFQUEUE is available only through iptables (`CONFIG_NETFILTER_XT_TARGET_NFQUEUE=y`), which kube-network-policies doesn't use. I removed the DaemonSet and checked that it left no nftables tables behind.
 
-Once enforcement is on, watch for kubelet probes. The tenant policies admit no host-network traffic, and how kube-network-policies treats traffic from the node has not been tested here.
+The kernel does have everything an iptables/ipset enforcer needs: `IP_SET` with the hash types, `NETFILTER_XT_SET`, conntrack, mark, raw/mangle/filter, `NFT_COMPAT` and VXLAN (but not IPIP). `hack/build-netpol.sh` and the manifest stay in the repo for kind on a standard kernel; the script now refuses to run on a kernel without `CONFIG_NFT_QUEUE`.
 
-With either option, M3 acceptance is: re-run `test/attack/run.sh` and `TestNetworkIsolation` must pass with its controls still connecting.
+Remaining options:
+
+| Option | What | Licence | Cost |
+|---|---|---|---|
+| **C (recommended)** | [kube-router](https://github.com/cloudnativelabs/kube-router) in its firewall-only mode (`--run-firewall`, with routing and service proxy off) as a DaemonSet beside kindnet. It enforces NetworkPolicy with iptables and ipset, which this kernel supports. | Apache-2.0 | Small; keeps the cell. It's new external code, so it needs its own approval. Image from Docker Hub via mirror.gcr.io, or built from tagged source if the mirror fails. |
+| B | Recreate the cell with Calico (iptables dataplane, VXLAN) | Apache-2.0 | Cell rebuild plus M1/M2 re-runs. Each node pulls its own copy of the Calico images (about 3.5 GB over 10 nodes) and 1.8 GB is free, so it doesn't fit without deeper cleanup. |
+| D | Accept M3 on the SQL, identity and admission evidence; verify enforcement in M6 on the cloud cell's CNI | – | No local proof of the network layer until M6. |
+
+With C or B, M3 acceptance is: re-run `test/attack/run.sh` and `TestNetworkIsolation` must pass with its controls still connecting.
