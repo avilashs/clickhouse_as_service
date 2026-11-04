@@ -2,7 +2,7 @@
 
 Audience: tenants and operators of Basalt. Every "cannot" below is enforced by at least one control and is checked by the automated attack suite (`test/attack`, results in [m3-report.md](m3-report.md)). The design rationale is in [clickhouse-design.md §9](clickhouse-design.md).
 
-> **Status (M3, local kind cell).** Every SQL, identity, limit and cross-tenant attack in the suite fails as it should. The **network layer is not yet in force in local cells**: the kind CNI (kindnet) ignores NetworkPolicy, so code running inside a server process could open TCP connections the policies forbid. Rows below that rely on NetworkPolicy say so. Cloud cells use a CNI that enforces NetworkPolicy; that is tested in M6.
+> **Status (M3).** Every attack in the suite fails, the network layer included: local kind cells enforce NetworkPolicy with kube-router beside kindnet, and cloud cells with their CNI (tested in M6).
 
 ## Your account
 
@@ -23,7 +23,7 @@ Each cluster starts with one user, `admin`, holding the role `customer_admin`. I
 
 | Capability | Why | Enforced by |
 |---|---|---|
-| Reach the network from SQL: `url`, `s3`, `remote`/`remoteSecure`, `mysql`, `postgresql`, `mongodb`, `redis`, `azureBlobStorage`, `hdfs`, `Kafka`/`URL`/`S3`/`MySQL` engines, HTTP dictionaries | Prevents SSRF against cloud metadata, internal services and other tenants | No `READ`/`WRITE ON <source>` grants. `remote_url_allow_hosts` matches no host; for HTTP and other dictionary sources, which ClickHouse does not check against source grants, it is the only SQL-level control. Default-deny egress NetworkPolicy, so that even code running inside your server reaches only its own replicas, its Keeper and DNS (**not enforced in local kind cells**, see Status). |
+| Reach the network from SQL: `url`, `s3`, `remote`/`remoteSecure`, `mysql`, `postgresql`, `mongodb`, `redis`, `azureBlobStorage`, `hdfs`, `Kafka`/`URL`/`S3`/`MySQL` engines, HTTP dictionaries | Prevents SSRF against cloud metadata, internal services and other tenants | No `READ`/`WRITE ON <source>` grants. `remote_url_allow_hosts` matches no host; for HTTP and other dictionary sources, which ClickHouse does not check against source grants, it is the only SQL-level control. Default-deny egress NetworkPolicy, so that even code running inside your server reaches only its own replicas, its Keeper and DNS. |
 | Read or write server files: `file()`, `File` engine, file dictionaries | Protects configuration, certificates and keys | No `FILE` grant; `user_files_path` confinement |
 | Run programs: `executable()`, `Executable`/`ExecutablePool` engines, executable dictionaries, executable UDFs | Code execution | No `TABLE ENGINE ON Executable*` grant; no user-scripts directory exists |
 | Use introspection functions (`addressToSymbol`, …) | They leak memory layout | `allow_introspection_functions` pinned to 0 |
@@ -35,7 +35,7 @@ Each cluster starts with one user, `admin`, holding the role `customer_admin`. I
 | Truncate, drop or alter `system` tables, or drop the platform's row policies | They underpin monitoring and isolation | Partial revokes on `system.*` |
 | `BACKUP`/`RESTORE`, named collections, `SYSTEM SHUTDOWN`/`RELOAD CONFIG`/`DROP REPLICA`, `EXECUTE AS` other users | Platform operations, or paths to secrets | Not granted. Backups are a platform operation (`/v1/…/backups`, M5). |
 | Read Keeper contents (`system.zookeeper*`) | Coordination metadata | Partial revoke |
-| Reach another tenant in any way | Tenant isolation | Separate processes, Keeper, credentials and certificates per cluster; per-project API tokens; NetworkPolicy (**not enforced in local kind cells**) |
+| Reach another tenant in any way | Tenant isolation | Separate processes, Keeper, credentials and certificates per cluster; per-project API tokens; NetworkPolicy |
 
 ## Data in transit and at rest
 

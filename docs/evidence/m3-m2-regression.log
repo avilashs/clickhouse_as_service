@@ -1,5 +1,5 @@
 == 1. create a shared and a dedicated cluster
-      shared cxbdokyywtub, dedicated coqncc7w5ykt
+      shared csv6n3tynj4r, dedicated cv3gadj73rox
 PASS  shared cluster becomes ACTIVE
 PASS  dedicated cluster becomes ACTIVE
 == 2. live invariants

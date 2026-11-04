@@ -4,23 +4,11 @@ Date: 2026-11-04. Environment: the M2 kind cell (Kubernetes 1.33.1, 10 nodes, gV
 
 **Acceptance (prompt):** an automated attack suite runs as a tenant and every attempt fails: SSRF to metadata and internal services, reading server files, executable functions, privilege escalation, raising limits past constraints, and cross-tenant access.
 
-## Status: not accepted yet. One layer is open, and closing it needs a decision
+## Results
 
-The suite, `test/attack/run.sh`, runs 9 tests with 99 subtests (plus 3 tests that are a single check each) against two live tenant clusters:
+**Every attack in the acceptance criteria fails.** `test/attack/run.sh` runs 9 tests with 99 subtests against two live tenant clusters. **Run 8: 9/9 tests and 99/99 subtests pass** ([log](evidence/m3-attack-run8.log)).
 
-- **86 subtests and the 3 single-check tests pass.** They cover every SQL-level attack, identity attack, limit attack and cross-tenant attack ([run 6 log](evidence/m3-attack-run6.log)).
-- **13 subtests fail, all in `TestNetworkIsolation`.** That test models an attacker who already has code execution inside tenant A's server process. From there, TCP connections reach everything the NetworkPolicies are meant to block:
-  - tenant B's server and Keeper
-  - the in-cell canary
-  - the Kubernetes API and the control plane on the host network
-  - `169.254.169.254` and `169.254.170.23`
-  - the gateway, the operator's metrics endpoint, and the internet
-
-The policies are rendered and applied, but **the kind CNI (kindnet) does not enforce NetworkPolicy**. Its node agent has no policy controller and there are no nftables rules. No SQL path reached any of these targets: the grant, allowlist and file controls held every time, and the canary saw no SQL-originated connection.
-
-The local cell needs a policy enforcer for this layer, and either option needs your go-ahead (see "Decision needed").
-
-## Results by area (run 6)
+The network layer is enforced in the local cell by kube-router in firewall-only mode, running beside kindnet (see "NetworkPolicy enforcement in local cells"). Before that, runs 1–6 showed the SQL, identity and admission layers holding without it: no SQL path reached a blocked target in any run ([run 6 log](evidence/m3-attack-run6.log)).
 
 | Test | Checks | Result | What it shows |
 |---|---|---|---|
@@ -31,14 +19,14 @@ The local cell needs a policy enforcer for this layer, and either option needs y
 | `TestNoSecretsVisibleToTenant` | 1 | pass | No platform activity in `query_log` or `processes`. No secret appears in `system.users`, `query_log`, `text_log`, `server_settings` or `named_collections`. |
 | `TestCrossTenant` | 3 | pass | Tenant A's credentials fail on B. A's certificate doesn't cover B's name. A's API token gets 404 on B's resources, and 401 on the cell-agent API. |
 | `TestDictionaryCannotBorrowPlatformUsers` | 5 | pass | A local ClickHouse dictionary can't gain privileges by logging in as `default` (with or without its password), `provider_ops` or `clickhouse_operator`. The control shows the tenant's own user works. |
-| `TestProviderQueriesCannotBeKilledByTenant` | 1 | pass | `KILL QUERY ON CLUSTER` is refused, and repeated plain kills don't touch the platform's query. The control: the same kills do kill the tenant's own query. |
-| `TestNetworkIsolation` | 15 | **2 pass, 13 fail** | Both controls pass (own replica, own Keeper); all 13 blocked-target checks fail, as described above. |
+| `TestProviderQueriesCannotBeKilledByTenant` | 1 | pass | `KILL QUERY ON CLUSTER` is refused, and repeated plain kills, each on a fresh connection, don't touch the platform's query. The control: the same kills do kill the tenant's own query. |
+| `TestNetworkIsolation` | 15 | pass | Models code execution inside tenant A's server process. Raw TCP from the pod reaches its own replica and Keeper (controls). It does not reach tenant B's server or Keeper, the in-cell canary (HTTP and MySQL ports), the Kubernetes API, the control plane on the host network, `169.254.169.254`, `169.254.170.23`, the gateway, the operator's metrics or the internet. `clickhouse-local` inside the pod can't reach the canary either, and the canary logs no connection. |
 
 `go test ./...` passes, including the new render invariant `TestProviderUserUsesCertificateOnly` and updated goldens for both tiers.
 
 ## Findings and fixes
 
-The suite found ten problems. Nine are fixed, each with a test that failed before its fix and passes after it. The network gap stays open.
+The suite found ten problems. All are fixed, each with a test that failed before its fix and passes after it.
 
 1. **`provider_ops` was reachable through the tenant gateway with a password.** The gateway's pod IP is in 10/8, so an IP allowlist meant nothing.
    - Fix: `provider_ops` now authenticates **only** with a client certificate signed by the cell CA (CN `basalt-agent`). The agent mints its own certificate, and the provider password no longer exists.
@@ -67,7 +55,9 @@ The suite found ten problems. Nine are fixed, each with a test that failed befor
 9. **Deleted clusters could hang forever.** The M2 admission policy `basalt-statefulset-owner` denied the garbage collector's removal of the `foregroundDeletion` finalizer, so StatefulSets deleted in the foreground stayed in Terminating.
    - Fix: UPDATEs that leave `spec` unchanged are allowed. I checked by hand that a `nodeSelector` patch is still denied and an annotation is allowed.
    - This one was found while recycling test clusters, not by an attack. `m2.sh` now checks it (see Regression).
-10. **NetworkPolicy isn't enforced in local cells.** This is open; see the status section.
+10. **NetworkPolicy wasn't enforced in local cells.** kindnet routes pods but ignores NetworkPolicy, so in runs 1–6 code inside a tenant's server reached everything the policies forbid.
+    - Fix: kube-router in firewall-only mode (next section).
+    - Test: `TestNetworkIsolation`, which went from 2/15 to 15/15.
 
 Other M3 changes, each covered by a test above:
 - The operator now reconciles Keeper installations in parallel (`basalt-overrides` ClickHouseOperatorConfiguration). Before, one stuck cluster delayed every other Keeper.
@@ -89,41 +79,36 @@ In run 1 some attacks were blocked by a different control than the one I had pre
 I also fixed three test bugs:
 - `query_id` has to be an HTTP parameter, not a SETTING.
 - The role-less user is granted `SELECT ON default.*`, because `customer_admin` can't grant `*.*` past its own partial revokes.
-- The kill test lacked a control (finding 7).
+- The kill test lacked a control (finding 7). Its kills then reused one keep-alive connection, which always reaches the same replica (run 7, [log](evidence/m3-attack-run7.log)); each kill round now opens a fresh connection.
 
 ## Regression
+
+Both suites were re-run after kube-router was deployed, so they pass with NetworkPolicy enforced.
 
 - **M1 (`test/e2e/m1.sh`) on the M3 cell: 31/31** ([log](evidence/m3-m1-regression.log)). The first run had 30/31. The failed check counted three credential files per cluster, but M3 removed the provider password on purpose. The check now names the two expected secrets (`admin`, `default`).
 - **M2 (`test/e2e/m2.sh`): 53/53** ([log](evidence/m3-m2-regression.log)): the 51 M2 checks plus two new ones for finding 9. Impersonating the garbage collector, a metadata-only StatefulSet update is admitted and a spec change is denied.
 
+## NetworkPolicy enforcement in local cells
+
+Cloud cells use a CNI that enforces NetworkPolicy; that is tested in M6. kindnet doesn't enforce it, so local cells add an enforcer:
+
+- **Tried first: kube-network-policies v1.1.3 (kubernetes-sigs), approved.** I built it from the tagged commit `d3fc697c` and ran it on all 10 nodes. Every instance exited with `could not open nfqueue socket: netlink receive: operation not supported`. Its nftables dataplane needs the nftables `queue` statement, and this VM's kernel (6.18.44-fc) lacks `CONFIG_NFT_QUEUE`. I removed the DaemonSet (no nftables tables were left behind), along with its build script and manifest.
+- **In use: kube-router v2.11.2 (cloudnativelabs, Apache-2.0), approved.** It runs in firewall-only mode (`--run-firewall=true --run-router=false --run-service-proxy=false`) beside kindnet and enforces policy with iptables and ipset, which this kernel supports.
+  - `hack/build-kube-router.sh` pulls the image by digest (`sha256:3e80cdbe…`) through mirror.gcr.io. It removes the CNI plugins and gobgp, which firewall-only mode doesn't use (370 MB down to about 160 MB), and loads the image onto the 9 pool nodes. Every node stores its own copy, and disk is tight here.
+  - I chose v2.11.2 (built 2026-10-22) over v2.12.0, which was 2 days old.
+  - The manifest is upstream's firewall-only example with three changes: the CNI install step is dropped (kindnet stays the CNI), it uses in-cluster ServiceAccount credentials, and it runs only on pool nodes.
+  - `hack/cell-up.sh` deploys it.
+
+Under enforcement, clusters still converge (both became ACTIVE in 3 minutes), and the operator, agent probes, gateway, replication and Keeper all work. TLS through the gateway, `Distributed` and the M1/M2 suites cover these (see Regression).
+
 ## Environment incidents (local only)
 
-- **A VM restart scrambled the kind nodes' IP addresses.** Docker reassigns them in start order, and the result breaks node addresses, DNS, volume binding and Envoy's xDS stream. I re-pinned each node to a static address on the `kind` network and restarted Envoy Gateway. `hack/cell-up.sh` now pins addresses when it creates a cell. The manual procedure was verified; the script path hasn't run yet, because it only runs on cell creation.
-- **The inotify limits reset on reboot.** `cell-up.sh` already raises them; rerun it, or the sysctl, after a VM restart.
+- **A VM restart scrambled the kind nodes' IP addresses.** Docker reassigns them in start order, and the result breaks node addresses, DNS, volume binding and Envoy's xDS stream. I re-pinned each node to a static address on the `kind` network and restarted Envoy Gateway. `hack/cell-up.sh` now pins addresses when it creates a cell. A second VM restart later kept every address; `hack/vm-recover.sh` (new) brought the stack back in one step. The `cell-up.sh` pinning path itself hasn't run yet, because it only runs on cell creation.
+- **The inotify limits reset on reboot.** `vm-recover.sh` raises them again.
+- **Disk is the tightest resource** (one VM, ten nodes, each with its own image store). It filled once during M3 when the test build re-downloaded Go modules, and I freed space by deleting build caches and host copies of images that the nodes already hold.
 
 ## Limitations and follow-ups
 
 - **No way to roll a config change out to existing clusters.** A render change reaches only clusters created afterwards, so I recreated the test clusters four times. Re-rendering and republishing existing clusters (with the operator's rolling restart) belongs in M5 lifecycle.
 - **Tenant admins can't kill their own users' queries** (finding 6). A platform endpoint could do it on their behalf.
 - **Opt-in egress** (design §9.2) will add hosts to `remote_url_allow_hosts`. That makes HTTP and other dictionary sources reachable for those hosts regardless of grants; the egress proxy and NetworkPolicy must carry that case.
-
-## Decision needed: enforcing NetworkPolicy in the local cell
-
-| Option | What | Licence | Cost |
-|---|---|---|---|
-| **A (recommended)** | Run [kube-network-policies](https://github.com/kubernetes-sigs/kube-network-policies) v1.1.3 (kubernetes-sigs, the reference NetworkPolicy implementation for kindnet-style CNIs) as a DaemonSet. Its image is on registry.k8s.io, which this environment can't reach, so the binary has to be **built from its source here** (`go build ./cmd/kube-network-policies/standard`). | Apache-2.0 | Small; keeps the cell as is. Building external code was blocked by this session's permission classifier, so it needs your explicit approval. |
-| B | Recreate the cell with `disableDefaultCNI` and Calico (images from Docker Hub via mirror.gcr.io) | Apache-2.0 | The cell must be rebuilt, M1 and M2 re-run, and Docker Hub rate limits may get in the way. |
-
-**Option A was approved, built and deployed, and does not work on this VM.** The binary was built from the tagged commit (`d3fc697c`) and ran on all 10 nodes. Every instance exited with `could not open nfqueue socket: netlink receive: operation not supported`. kube-network-policies hands each new connection to userspace through the nftables `queue` statement, and this VM's kernel (6.18.44-fc) is built without `CONFIG_NFT_QUEUE`. NFQUEUE is available only through iptables (`CONFIG_NETFILTER_XT_TARGET_NFQUEUE=y`), which kube-network-policies doesn't use. I removed the DaemonSet and checked that it left no nftables tables behind.
-
-The kernel does have everything an iptables/ipset enforcer needs: `IP_SET` with the hash types, `NETFILTER_XT_SET`, conntrack, mark, raw/mangle/filter, `NFT_COMPAT` and VXLAN (but not IPIP). `hack/build-netpol.sh` and the manifest stay in the repo for kind on a standard kernel; the script now refuses to run on a kernel without `CONFIG_NFT_QUEUE`.
-
-Remaining options:
-
-| Option | What | Licence | Cost |
-|---|---|---|---|
-| **C (recommended)** | [kube-router](https://github.com/cloudnativelabs/kube-router) in its firewall-only mode (`--run-firewall`, with routing and service proxy off) as a DaemonSet beside kindnet. It enforces NetworkPolicy with iptables and ipset, which this kernel supports. | Apache-2.0 | Small; keeps the cell. It's new external code, so it needs its own approval. Image from Docker Hub via mirror.gcr.io, or built from tagged source if the mirror fails. |
-| B | Recreate the cell with Calico (iptables dataplane, VXLAN) | Apache-2.0 | Cell rebuild plus M1/M2 re-runs. Each node pulls its own copy of the Calico images (about 3.5 GB over 10 nodes) and 1.8 GB is free, so it doesn't fit without deeper cleanup. |
-| D | Accept M3 on the SQL, identity and admission evidence; verify enforcement in M6 on the cloud cell's CNI | – | No local proof of the network layer until M6. |
-
-With C or B, M3 acceptance is: re-run `test/attack/run.sh` and `TestNetworkIsolation` must pass with its controls still connecting.
