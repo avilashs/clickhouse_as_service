@@ -1,0 +1,27 @@
+# Local cell: 1 control-plane node, 3 "control" pool nodes and 3 "shared" pool nodes, one of each per zone.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: basalt-cell1
+networking:
+  disableDefaultCNI: false
+nodes:
+- role: control-plane
+- role: worker
+  labels: {basalt.io/pool: control, topology.kubernetes.io/zone: zone-a}
+- role: worker
+  labels: {basalt.io/pool: control, topology.kubernetes.io/zone: zone-b}
+- role: worker
+  labels: {basalt.io/pool: control, topology.kubernetes.io/zone: zone-c}
+- role: worker
+  labels: {basalt.io/pool: shared, topology.kubernetes.io/zone: zone-a}
+- role: worker
+  labels: {basalt.io/pool: shared, topology.kubernetes.io/zone: zone-b}
+- role: worker
+  labels: {basalt.io/pool: shared, topology.kubernetes.io/zone: zone-c}
+# Required inside sandboxed VMs (e.g. Firecracker-based CI) where processes may not lower
+# oom_score_adj; harmless elsewhere. Without it every pod sandbox fails with
+# "failed to update /proc/self/oom_score_adj: Permission denied".
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri"]
+    restrict_oom_score_adj = true

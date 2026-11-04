@@ -1,0 +1,17 @@
+# Altinity clickhouse-operator release-0.27.4 (Apache-2.0), unmodified upstream bundle + patches.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- upstream-0.27.4.yaml
+patches:
+- target: {kind: Deployment, name: clickhouse-operator}
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/imagePullPolicy
+      value: IfNotPresent
+    - op: replace
+      path: /spec/template/spec/containers/1/imagePullPolicy
+      value: IfNotPresent
+    - op: add
+      path: /spec/template/spec/nodeSelector
+      value: {basalt.io/pool: control}

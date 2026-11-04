@@ -1,0 +1,171 @@
+openapi: 3.1.0
+info:
+  title: Basalt API
+  version: 0.1.0-m1
+  description: |
+    Managed service for ClickHouse®. Every mutation is asynchronous: it returns `202` with an
+    `Operation` and needs an `Idempotency-Key` header. Replaying the same key with the same
+    request returns the original operation; reusing a key with a different request returns 422.
+    ClickHouse is a registered trademark of ClickHouse, Inc.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearer: []
+paths:
+  /v1/sizes:
+    get:
+      summary: List the size catalog
+      security: []
+      responses:
+        "200": {description: Sizes, content: {application/json: {schema: {type: object}}}}
+  /v1/versions:
+    get:
+      summary: List offered ClickHouse versions by channel
+      security: []
+      responses:
+        "200": {description: Versions, content: {application/json: {schema: {type: object}}}}
+  /v1/projects/{project}/clusters:
+    parameters: [{$ref: "#/components/parameters/project"}]
+    post:
+      summary: Create a cluster
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/CreateClusterRequest"}}}
+      responses:
+        "202": {$ref: "#/components/responses/Accepted"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+    get:
+      summary: List clusters
+      responses:
+        "200":
+          description: Clusters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clusters: {type: array, items: {$ref: "#/components/schemas/Cluster"}}
+  /v1/projects/{project}/clusters/{cluster}:
+    parameters: [{$ref: "#/components/parameters/project"}, {$ref: "#/components/parameters/cluster"}]
+    get:
+      summary: Describe a cluster
+      responses:
+        "200": {description: Cluster, content: {application/json: {schema: {$ref: "#/components/schemas/Cluster"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+    delete:
+      summary: Delete a cluster
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      responses:
+        "202": {$ref: "#/components/responses/Accepted"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/projects/{project}/clusters/{cluster}/initialCredentials:
+    parameters: [{$ref: "#/components/parameters/project"}, {$ref: "#/components/parameters/cluster"}]
+    get:
+      summary: Read the initial admin credentials
+      description: The admin user holds the customer_admin role. Rotate the password after first use.
+      responses:
+        "200":
+          description: Credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {username: {type: string}, password: {type: string}}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/projects/{project}/operations/{operation}:
+    parameters:
+      - {$ref: "#/components/parameters/project"}
+      - {name: operation, in: path, required: true, schema: {type: string}}
+    get:
+      summary: Get an operation
+      responses:
+        "200": {description: Operation, content: {application/json: {schema: {$ref: "#/components/schemas/Operation"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+components:
+  securitySchemes:
+    bearer: {type: http, scheme: bearer}
+  parameters:
+    project: {name: project, in: path, required: true, schema: {type: string}}
+    cluster: {name: cluster, in: path, required: true, schema: {type: string}}
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 200}
+  responses:
+    Accepted:
+      description: Operation accepted
+      headers:
+        Location: {schema: {type: string}, description: URL of the operation}
+      content: {application/json: {schema: {$ref: "#/components/schemas/Operation"}}}
+    Error:
+      description: Error
+      content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}
+  schemas:
+    CreateClusterRequest:
+      type: object
+      required: [name, size]
+      additionalProperties: false
+      properties:
+        name: {type: string, pattern: "^[a-z][a-z0-9-]{1,38}[a-z0-9]$"}
+        size: {type: string, description: "See GET /v1/sizes"}
+        tier: {type: string, enum: [shared], default: shared, description: "dedicated arrives in M2"}
+        storageGiB: {type: integer, minimum: 1, description: "Defaults to the size's default"}
+        version: {type: string, description: "Defaults to the LTS channel; see GET /v1/versions"}
+    ClusterSpec:
+      type: object
+      properties:
+        version: {type: integer}
+        engine: {type: string}
+        tier: {type: string, enum: [shared, dedicated]}
+        size: {type: string}
+        shards: {type: integer}
+        replicasPerShard: {type: integer}
+        storageGiB: {type: integer}
+        serverVersion: {type: string}
+    Cluster:
+      type: object
+      properties:
+        id: {type: string}
+        projectId: {type: string}
+        cellId: {type: string}
+        name: {type: string}
+        state: {type: string, enum: [CREATING, ACTIVE, UPDATING, DEGRADED, FAILED, DELETING, DELETED]}
+        stateReason: {type: string}
+        spec: {$ref: "#/components/schemas/ClusterSpec"}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        endpoint:
+          type: object
+          properties:
+            host: {type: string, description: "<clusterId>.<cell>.<domain>"}
+            nativeTlsPort: {type: integer}
+            httpsPort: {type: integer}
+            caCertificate: {type: string, description: PEM of the CA that signs this cell's server certificates}
+    Operation:
+      type: object
+      properties:
+        id: {type: string}
+        projectId: {type: string}
+        clusterId: {type: string}
+        kind: {type: string, enum: [CREATE_CLUSTER, DELETE_CLUSTER]}
+        state: {type: string, enum: [PENDING, RUNNING, SUCCEEDED, FAILED]}
+        error: {type: string}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    Error:
+      type: object
+      properties:
+        code: {type: string}
+        message: {type: string}
+        fields:
+          type: array
+          items:
+            type: object
+            properties: {field: {type: string}, message: {type: string}}

@@ -1,0 +1,5 @@
+# Cell agent image: a static Go binary, nothing else (no shell, no package manager).
+FROM scratch
+COPY bin/basalt-agent /basalt-agent
+USER 65532:65532
+ENTRYPOINT ["/basalt-agent"]

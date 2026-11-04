@@ -1,0 +1,45 @@
+# Shared-tier entry point (ADR-0005): TLS passthrough routed by SNI. TLS terminates in the
+# tenant's ClickHouse pods with the tenant's own certificate; the gateway never sees plaintext.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata: {name: basalt-shared, namespace: basalt-system}
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 1
+        pod:
+          nodeSelector: {basalt.io/pool: control}
+        container:
+          image: docker.io/envoyproxy/envoy:distroless-v1.35.0
+      envoyService:
+        type: ClusterIP          # kind: reached via port-forward; on EKS: NLB (type LoadBalancer)
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata: {name: basalt-shared}
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef: {group: gateway.envoyproxy.io, kind: EnvoyProxy, name: basalt-shared, namespace: basalt-system}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata: {name: shared, namespace: basalt-system}
+spec:
+  gatewayClassName: basalt-shared
+  listeners:
+  - name: native-tls
+    protocol: TLS
+    port: 9440
+    tls: {mode: Passthrough}
+    allowedRoutes:
+      kinds: [{kind: TLSRoute}]
+      namespaces: {from: Selector, selector: {matchLabels: {basalt.io/managed: "true"}}}
+  - name: https
+    protocol: TLS
+    port: 8443
+    tls: {mode: Passthrough}
+    allowedRoutes:
+      kinds: [{kind: TLSRoute}]
+      namespaces: {from: Selector, selector: {matchLabels: {basalt.io/managed: "true"}}}

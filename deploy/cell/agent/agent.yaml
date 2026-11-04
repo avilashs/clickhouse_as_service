@@ -1,0 +1,70 @@
+# Basalt cell agent. The Secret basalt-agent (keys: token, controlPlaneUrl) is created by
+# hack/cell-up.sh or by cell provisioning.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: basalt-agent, namespace: basalt-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: basalt-agent}
+rules:
+# M1 grants cluster-wide rights on the kinds it manages; M3 narrows secrets access to
+# basalt-managed namespaces with per-namespace RoleBindings (docs/m1-report.md, limitations).
+- apiGroups: [""]
+  resources: [namespaces]
+  verbs: [get, list, watch, create, patch, update, delete]
+- apiGroups: [""]
+  resources: [secrets]
+  verbs: [get, list, create, patch, update, delete]
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [get, list, watch]
+- apiGroups: [networking.k8s.io]
+  resources: [networkpolicies]
+  verbs: [get, list, create, patch, update, delete]
+- apiGroups: [policy]
+  resources: [poddisruptionbudgets]
+  verbs: [get, list, create, patch, update, delete]
+- apiGroups: [clickhouse.altinity.com]
+  resources: [clickhouseinstallations]
+  verbs: [get, list, watch, create, patch, update, delete]
+- apiGroups: [clickhouse-keeper.altinity.com]
+  resources: [clickhousekeeperinstallations]
+  verbs: [get, list, watch, create, patch, update, delete]
+- apiGroups: [gateway.networking.k8s.io]
+  resources: [tlsroutes]
+  verbs: [get, list, create, patch, update, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: basalt-agent}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: basalt-agent}
+subjects: [{kind: ServiceAccount, name: basalt-agent, namespace: basalt-system}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: basalt-agent, namespace: basalt-system}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: basalt-agent}}
+  template:
+    metadata: {labels: {app: basalt-agent}}
+    spec:
+      serviceAccountName: basalt-agent
+      nodeSelector: {basalt.io/pool: control}
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: agent
+        image: basalt-agent:dev
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: BASALT_CELL_ID, value: cell1}
+        - name: BASALT_CONTROL_PLANE_URL
+          valueFrom: {secretKeyRef: {name: basalt-agent, key: controlPlaneUrl}}
+        - name: BASALT_CELL_AGENT_TOKEN
+          valueFrom: {secretKeyRef: {name: basalt-agent, key: token}}
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+          limits: {memory: 256Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
