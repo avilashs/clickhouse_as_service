@@ -2,7 +2,7 @@
 
 Open-source, self-hostable platform: tenants request ClickHouse clusters through an API and connect with standard ClickHouse clients.
 
-**Status: M2 (placement), running locally on kind.** Reports with test results and known limitations: [M1](docs/m1-report.md) (engine on platform), [M2](docs/m2-report.md) (shared and dedicated tiers, admission, audit, gVisor).
+**Status: M3 (security) in progress, running locally on kind.** Reports with test results and known limitations: [M1](docs/m1-report.md) (engine on platform), [M2](docs/m2-report.md) (shared and dedicated tiers, admission, audit, gVisor), [M3](docs/m3-report.md) (tenant attack suite; NetworkPolicy enforcement in local cells still open). What tenants can and cannot do: [security guide](docs/security-guide.md).
 
 * [Design](docs/clickhouse-design.md) · [ADRs](docs/adr/) · [Dependencies](docs/dependencies.md) · [API (OpenAPI)](api/openapi.yaml)
 * [Phase 0 review](docs/review-2026-11-04.md) and [lab evidence](docs/evidence/2026-11-04-lab.md)
@@ -63,6 +63,12 @@ test/e2e/m1.sh
 
 ```bash
 test/e2e/m2.sh
+```
+
+Run the M3 tenant attack suite (it needs two ACTIVE clusters in projects `demo` and `rival`):
+
+```bash
+test/attack/run.sh <cluster-in-demo> <cluster-in-rival>
 ```
 
 Run the unit and integration tests (the store tests need the Postgres started by `dev-up.sh`):
