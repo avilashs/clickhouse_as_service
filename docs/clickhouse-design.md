@@ -813,7 +813,7 @@ See [ADR-0005](adr/0005-networking.md). Summary:
 | F-2 | Node terminated | Node NotReady | EBS reattaches in the same AZ (minutes); other replicas serve; PDB unaffected (involuntary) | M6 |
 | F-3 | Zone outage | Several nodes NotReady in one AZ | 2-replica shards keep 1 replica; Keeper keeps 2/3 if spread across 3 AZs (required); EBS is zonal, so the pods stay Pending until the zone returns, and **no automatic cross-zone rebuild in v1** (runbook to add a replica in another zone) | M6 (simulated by tainting and killing the AZ's nodes) |
 | F-4 | Disk full | Alerts at 70/85% | Inserts fail with `NOT_ENOUGH_SPACE`; reads OK; auto-expand; balloon release | M4, M6 |
-| F-5 | Keeper quorum loss | `is_readonly`, `mntr` | Read-only, `DEGRADED` | M4, M6 |
+| F-5 | Keeper quorum loss | `is_readonly`, `mntr` | Read-only, `DEGRADED`. **M1 finding:** with replicated access storage, a server cannot *start* without Keeper (exit 231), so a replica that restarts during the outage stays down; mitigation chosen in M4 (docs/m1-report.md, limitation 5) | M4, M6 |
 | F-6 | Single Keeper node loss | `mntr` | Quorum intact; replace pod; PVC reattaches | M6 |
 | F-7 | Too many parts | Parts alert | `parts_to_delay_insert` slows, `parts_to_throw_insert` rejects; customer guidance (batching / async) | M4 |
 | F-8 | Runaway query | Memory errors | Query fails, pod survives | M4 |

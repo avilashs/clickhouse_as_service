@@ -32,6 +32,13 @@ done
 KIND_CLUSTER=$CLUSTER hack/kind-load.sh --pool control "${CONTROL_IMAGES[@]}"
 KIND_CLUSTER=$CLUSTER hack/kind-load.sh --pool shared "${SHARED_IMAGES[@]}"
 
+# operator credentials: random per cell, created once (never the bundle's public default)
+if ! kubectl -n kube-system get secret clickhouse-operator >/dev/null 2>&1 || \
+   [ "$(kubectl -n kube-system get secret clickhouse-operator -o jsonpath='{.data.password}' | base64 -d)" = clickhouse_operator_password ]; then
+  kubectl -n kube-system create secret generic clickhouse-operator --from-literal=username=clickhouse_operator \
+    --from-literal=password="$(openssl rand -hex 24)" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n kube-system rollout restart deploy/clickhouse-operator >/dev/null 2>&1 || true
+fi
 kubectl apply --server-side -k deploy/cell/altinity-operator >/dev/null
 kubectl -n kube-system rollout status deploy/clickhouse-operator --timeout=180s
 

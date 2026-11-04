@@ -266,6 +266,9 @@ func (s *Server) startAndRespond(w http.ResponseWriter, r *http.Request, op mode
 			s.Log.Warn("workflow start failed; sweeper will retry", "operation", op.ID, "err", err)
 		}
 	}
+	if fresh, err := s.Store.GetOperation(r.Context(), op.ID); err == nil {
+		op = fresh // report the stored timestamps and any progress the workflow already made
+	}
 	w.Header().Set("Location", "/v1/projects/"+op.ProjectID+"/operations/"+op.ID)
 	writeJSON(w, 202, op)
 }

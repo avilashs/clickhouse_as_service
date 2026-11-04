@@ -352,9 +352,9 @@ func (a *Agent) observeObjects(ctx context.Context, e api.DesiredEntry, obs *eng
 
 func (a *Agent) conn(d engine.Desired, host string) (clickhouse.Conn, error) {
 	return clickhouse.Open(&clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:%d", host, d.SQL.Port)},
-		Auth: clickhouse.Auth{Database: "default", Username: d.SQL.User, Password: d.SQL.PasswordRef},
-		TLS:  &tls.Config{RootCAs: a.ca.Pool(), ServerName: host, MinVersion: tls.VersionTLS12},
+		Addr:        []string{fmt.Sprintf("%s:%d", host, d.SQL.Port)},
+		Auth:        clickhouse.Auth{Database: "default", Username: d.SQL.User, Password: d.SQL.PasswordRef},
+		TLS:         &tls.Config{RootCAs: a.ca.Pool(), ServerName: host, MinVersion: tls.VersionTLS12},
 		DialTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second,
 	})
 }

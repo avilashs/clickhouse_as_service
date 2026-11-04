@@ -26,12 +26,13 @@ fi
 source "$ENVF"
 
 # Postgres
-if ! docker ps --format '{{.Names}}' | grep -qx basalt-pg; then
-  docker rm -f basalt-pg >/dev/null 2>&1 || true
+if docker ps -a --format '{{.Names}}' | grep -qx basalt-pg; then
+  docker start basalt-pg >/dev/null   # keep existing data
+else
   docker run -d --name basalt-pg -e POSTGRES_PASSWORD=basalt -e POSTGRES_USER=basalt -e POSTGRES_DB=basalt \
     -p 127.0.0.1:5432:5432 postgres:16.10 >/dev/null
-  until docker exec basalt-pg pg_isready -U basalt >/dev/null 2>&1; do sleep 1; done
 fi
+until docker exec basalt-pg pg_isready -U basalt >/dev/null 2>&1; do sleep 1; done
 # Temporal dev server (persistent SQLite so workflows survive a server restart)
 if ! pgrep -f "temporal server start-dev" >/dev/null; then
   nohup temporal server start-dev --headless --db-filename "$BASALT_HOME/temporal.db" --port 7233 --ui-port 8233 \

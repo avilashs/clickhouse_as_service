@@ -15,3 +15,12 @@ patches:
     - op: add
       path: /spec/template/spec/nodeSelector
       value: {basalt.io/pool: control}
+# The upstream bundle ships a fixed, public password for the operator's ClickHouse user
+# ("clickhouse_operator_password"). Drop that Secret; hack/cell-up.sh creates it once with a
+# random password (production: cell provisioning).
+- target: {kind: Secret, name: clickhouse-operator, namespace: kube-system}
+  patch: |-
+    $patch: delete
+    apiVersion: v1
+    kind: Secret
+    metadata: {name: clickhouse-operator, namespace: kube-system}
