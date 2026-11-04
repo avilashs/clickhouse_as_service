@@ -299,6 +299,21 @@ const accessXML = `<clickhouse>
 </clickhouse>
 `
 
+// defaultUserXML strips the stock image's admin rights from "default" (access_management and
+// named_collection_control are 1 in users.xml, which also forbids <grants>) and undoes the
+// operator's widening of its networks to every pod of the cluster. Nothing logs in as default;
+// see users(). Named zz- so it merges after the operator's chop-generated-users.xml.
+const defaultUserXML = `<clickhouse>
+  <users>
+    <default>
+      <access_management remove="1"/>
+      <named_collection_control remove="1"/>
+      <networks replace="1"><ip>::1</ip><ip>127.0.0.1</ip></networks>
+    </default>
+  </users>
+</clickhouse>
+`
+
 func keeper(n names, size model.Size, version string) engine.Object {
 	vol, mount := certVolume()
 	chkSelector := map[string]any{"matchLabels": map[string]any{"clickhouse-keeper.altinity.com/chk": n.chk}}
@@ -426,12 +441,18 @@ func server(n names, c model.Cluster, size model.Size, cell model.Cell) engine.O
 					// our per-shard PDBs replace the operator's single cluster-wide one: a pod
 					// matching two PDBs cannot be evicted at all, which blocks node drains (M3)
 					"pdbManaged": "no",
-					"layout":     map[string]any{"shardsCount": c.Spec.Shards, "replicasCount": c.Spec.ReplicasPerShard},
+					// interserver secret: a Distributed query reaches the other replicas as the
+					// user who issued it, with that user's grants and row policies. Without it the
+					// replicas log in to each other as "default" (M3 finding: Distributed failed
+					// with AUTHENTICATION_FAILED). The operator generates the value inside the
+					// cell; it never reaches the control plane.
+					"secret": map[string]any{"auto": "true"},
+					"layout": map[string]any{"shardsCount": c.Spec.Shards, "replicasCount": c.Spec.ReplicasPerShard},
 				}},
 				"users":    users(),
 				"profiles": profiles(size),
 				"settings": serverSettings(n, c, size, cell),
-				"files":    map[string]any{"basalt-openssl.xml": opensslXML, "basalt-access.xml": accessXML},
+				"files":    map[string]any{"basalt-openssl.xml": opensslXML, "basalt-access.xml": accessXML, "users.d/zz-basalt-default-user.xml": defaultUserXML},
 			},
 			"templates": map[string]any{
 				"podTemplates": []any{map[string]any{
@@ -461,6 +482,10 @@ func users() map[string]any {
 		"default/password_sha256_hex": secretKeyRef(usersSecret, "default_sha256"),
 		"default/networks/ip":         []any{"127.0.0.1", "::1"},
 		"default/profile":             "default",
+		// Nothing logs in as "default" (Distributed uses the interserver secret). Its address
+		// restriction does not cover in-process logins, e.g. a local ClickHouse dictionary source
+		// (M3 finding), so it also holds no privilege worth taking.
+		"default/grants/query": []any{"GRANT SELECT ON system.one"},
 		// The provider user authenticates only with a client certificate signed by the cell CA
 		// (CN basalt-agent), never a password: tenants reach the servers through the in-cell gateway,
 		// so an IP allowlist alone would let anyone holding a password in (M3 finding).

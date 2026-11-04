@@ -2,8 +2,9 @@ bootstrap:
 - CREATE ROLE IF NOT EXISTS customer_admin
 - GRANT SELECT, INSERT, ALTER, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE
   DICTIONARY, CREATE FUNCTION, DROP DATABASE, DROP TABLE, DROP VIEW, DROP DICTIONARY,
-  DROP FUNCTION, TRUNCATE, OPTIMIZE, SHOW, KILL QUERY, dictGet ON *.* TO customer_admin
-  WITH GRANT OPTION
+  DROP FUNCTION, TRUNCATE, OPTIMIZE, SHOW, dictGet ON *.* TO customer_admin WITH GRANT
+  OPTION
+- REVOKE KILL QUERY ON *.* FROM customer_admin
 - REVOKE SELECT ON system.zookeeper FROM customer_admin
 - REVOKE SELECT ON system.zookeeper_connection FROM customer_admin
 - REVOKE SELECT ON system.zookeeper_log FROM customer_admin
@@ -417,6 +418,8 @@ objects:
           shardsCount: 2
         name: default
         pdbManaged: "no"
+        secret:
+          auto: "true"
         secure: "yes"
       files:
         basalt-access.xml: |
@@ -445,6 +448,16 @@ objects:
                 <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
               </client>
             </openSSL>
+          </clickhouse>
+        users.d/zz-basalt-default-user.xml: |
+          <clickhouse>
+            <users>
+              <default>
+                <access_management remove="1"/>
+                <named_collection_control remove="1"/>
+                <networks replace="1"><ip>::1</ip><ip>127.0.0.1</ip></networks>
+              </default>
+            </users>
           </clickhouse>
       profiles:
         default/allow_introspection_functions: 0
@@ -489,6 +502,8 @@ objects:
         tcp_port_secure: 9440
         user_scripts_path: /nonexistent/basalt-no-user-scripts/
       users:
+        default/grants/query:
+        - GRANT SELECT ON system.one
         default/networks/ip:
         - 127.0.0.1
         - ::1

@@ -25,8 +25,12 @@ func bootstrapSQL(clusterID string) []string {
 	return append([]string{
 		"CREATE ROLE IF NOT EXISTS customer_admin",
 		"GRANT SELECT, INSERT, ALTER, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE DICTIONARY, CREATE FUNCTION, " +
-			"DROP DATABASE, DROP TABLE, DROP VIEW, DROP DICTIONARY, DROP FUNCTION, TRUNCATE, OPTIMIZE, SHOW, KILL QUERY, dictGet " +
+			"DROP DATABASE, DROP TABLE, DROP VIEW, DROP DICTIONARY, DROP FUNCTION, TRUNCATE, OPTIMIZE, SHOW, dictGet " +
 			"ON *.* TO customer_admin WITH GRANT OPTION",
+		// KILL QUERY is not per-user: holding it lets you kill anyone's query, the platform's
+		// included (M3 finding). Every user can kill its own queries without it. The explicit
+		// revoke also removes it from clusters bootstrapped before M3.
+		"REVOKE KILL QUERY ON *.* FROM customer_admin",
 		// partial revokes: Keeper paths and the provider's canary database
 		"REVOKE SELECT ON system.zookeeper FROM customer_admin",
 		"REVOKE SELECT ON system.zookeeper_connection FROM customer_admin",

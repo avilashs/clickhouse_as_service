@@ -418,11 +418,16 @@ func TestControls(t *testing.T) {
 	if got := expectOK(t, a.q("SELECT count() FROM default.att_ctl")); got != "100" {
 		t.Fatalf("count = %s", got)
 	}
+	// Distributed reaches the other replica as the issuing user (interserver secret)
+	expectOK(t, a.q("CREATE TABLE IF NOT EXISTS default.att_ctl_dist ON CLUSTER default AS default.att_ctl ENGINE = Distributed(default, default, att_ctl, rand())"))
+	if got := expectOK(t, a.q("SELECT count() FROM default.att_ctl_dist SETTINGS prefer_localhost_replica = 0, skip_unavailable_shards = 0")); got != "100" {
+		t.Fatalf("Distributed count = %s", got)
+	}
 	expectOK(t, a.q("CREATE FUNCTION IF NOT EXISTS att_double AS x -> x * 2"))
 	expectOK(t, a.q("CREATE USER IF NOT EXISTS att_analyst IDENTIFIED WITH sha256_password BY 'Att-analyst-1'"))
 	expectOK(t, a.q("SELECT count() FROM system.query_log"))
 	t.Cleanup(func() {
-		for _, s := range []string{"DROP TABLE IF EXISTS default.att_ctl ON CLUSTER default SYNC", "DROP FUNCTION IF EXISTS att_double", "DROP USER IF EXISTS att_analyst"} {
+		for _, s := range []string{"DROP TABLE IF EXISTS default.att_ctl_dist ON CLUSTER default SYNC", "DROP TABLE IF EXISTS default.att_ctl ON CLUSTER default SYNC", "DROP FUNCTION IF EXISTS att_double", "DROP USER IF EXISTS att_analyst"} {
 			a.q(s)
 		}
 	})
@@ -647,37 +652,55 @@ func TestNetworkIsolation(t *testing.T) {
 }
 
 // TestProviderQueriesCannotBeKilledByTenant: the tenant's KILL QUERY must not reach platform
-// queries (probes, backups).
+// queries (probes, backups). The gateway balances connections across replicas, so every kill
+// is repeated until the tenant's own sleeping query (the control) is gone: by then the kills
+// have reached the replica that runs it. Run 3 showed a single kill proves nothing; run 5
+// showed customer_admin's KILL QUERY grant let it kill the provider's query.
 func TestProviderQueriesCannotBeKilledByTenant(t *testing.T) {
 	e := setup(t)
 	cert := e.cellCertificate(t, clickhouse.AgentClientCN)
 	prov := e.connect(e.a, clickhouse.ProviderUser, "", &cert)
-	done := make(chan result, 1)
-	qid := "att-provider-" + e.runID
-	go func() {
-		done <- prov.qp("SELECT sum(sleepEachRow(0.5)) FROM numbers(20) SETTINGS max_block_size = 1, function_sleep_max_microseconds_per_block = 60000000",
-			url.Values{"query_id": {qid}})
-	}()
-	time.Sleep(3 * time.Second)
-	// control: the provider query is really running (as the provider sees it)
-	if got := expectOK(t, prov.q("SELECT count() FROM system.processes WHERE query_id = '"+qid+"'")); got != "1" {
-		t.Fatalf("provider query not running (count %s), so the test proves nothing", got)
-	}
 	a := e.admin(e.a)
-	for _, k := range []string{"KILL QUERY WHERE query_id = '" + qid + "' SYNC", "KILL QUERY WHERE user = 'provider_ops' SYNC"} {
-		if r := a.q(k); r.code != 0 && r.code != codeAccessDenied {
-			t.Errorf("%s: %s", k, r)
+	const sleepSQL = "SELECT sum(sleepEachRow(0.5)) FROM numbers(30) SETTINGS max_block_size = 1, function_sleep_max_microseconds_per_block = 60000000"
+	qidP, qidT := "att-provider-"+e.runID, "att-tenant-"+e.runID
+	provDone, tenDone := make(chan result, 1), make(chan result, 1)
+	go func() { provDone <- prov.qp(sleepSQL, url.Values{"query_id": {qidP}}) }()
+	go func() { tenDone <- a.qp(sleepSQL, url.Values{"query_id": {qidT}}) }()
+	time.Sleep(2 * time.Second)
+	t.Run("KILL QUERY ON CLUSTER is refused", func(t *testing.T) {
+		expectDenied(t, a.q("KILL QUERY ON CLUSTER default WHERE user = 'provider_ops' SYNC"), codeAccessDenied)
+	})
+	var tenant result
+	killed := false
+	for i := 0; i < 20 && !killed; i++ {
+		for _, k := range []string{
+			"KILL QUERY WHERE query_id IN ('" + qidP + "', '" + qidT + "') SYNC",
+			"KILL QUERY WHERE user = 'provider_ops' SYNC",
+			"KILL QUERY WHERE 1 SYNC",
+		} {
+			if r := a.q(k); r.code != 0 && r.code != codeAccessDenied {
+				t.Errorf("%s: %s", k, r)
+			}
+		}
+		select {
+		case tenant = <-tenDone:
+			killed = true
+		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	if r := <-done; r.err != "" || r.code != 0 {
+	if !killed || (tenant.err == "" && tenant.code == 0) {
+		t.Fatalf("control: the tenant could not kill its own query (%v), so the test proves nothing", tenant)
+	}
+	if r := <-provDone; r.err != "" || r.code != 0 {
 		t.Fatalf("the tenant killed (or disturbed) a provider query: %s", r)
 	}
 }
 
 // TestDictionaryCannotBorrowPlatformUsers: a local ClickHouse dictionary source logs in as
 // the user named in its definition ("default" when none is given), over the LOCAL interface
-// with no client address. Platform users must refuse it even when the attacker has their
-// real password; the control shows the tenant's own user works the same way.
+// with no client address, so the users' address restrictions do not apply. Platform users
+// must refuse the login or hold no privilege, even when the attacker has their real
+// password; the control shows the tenant's own user works the same way.
 func TestDictionaryCannotBorrowPlatformUsers(t *testing.T) {
 	e := setup(t)
 	a := e.admin(e.a)
@@ -690,7 +713,8 @@ func TestDictionaryCannotBorrowPlatformUsers(t *testing.T) {
 	opPW := string(decodeB64(t, out))
 	try := func(user, pw string) result {
 		name := "default.att_dict_as_" + user
-		src := "SOURCE(CLICKHOUSE(query 'SELECT toUInt64(1) AS k, currentUser() AS v' user '" + user + "'"
+		// reading system.query_log needs a grant the platform's "default" user does not hold
+		src := "SOURCE(CLICKHOUSE(query 'SELECT toUInt64(1) AS k, currentUser() AS v FROM system.query_log LIMIT 1' user '" + user + "'"
 		if pw != "" {
 			src += " password '" + pw + "'"
 		}
@@ -708,7 +732,9 @@ func TestDictionaryCannotBorrowPlatformUsers(t *testing.T) {
 			label = "its real password"
 		}
 		t.Run(c.user+" with "+label, func(t *testing.T) {
-			expectDenied(t, try(c.user, c.pw), codeAuthFailed, codeWrongPassword)
+			// "default" with its real password does log in (in-process logins skip the address
+			// check), so for it the defence is that it holds no privilege: 497
+			expectDenied(t, try(c.user, c.pw), codeAuthFailed, codeWrongPassword, codeAccessDenied)
 		})
 	}
 	t.Run("control: the tenant's own admin works", func(t *testing.T) {
