@@ -165,7 +165,10 @@ spec:
   validations:
   - expression: >-
       !('basalt.io/component' in variables.tlabels && variables.tlabels['basalt.io/component'] in ['clickhouse-server', 'keeper']) ||
-      request.userInfo.username == params.data.operatorUser
+      request.userInfo.username == params.data.operatorUser ||
+      (request.operation == 'UPDATE' && object.spec == oldObject.spec)
+    # metadata-only updates stay open: the garbage collector removes the foregroundDeletion
+    # finalizer this way, and denying it left deleted clusters stuck forever (M3 finding)
     message: "ClickHouse and Keeper StatefulSets are managed by the operator only"
 ---
 apiVersion: admissionregistration.k8s.io/v1
