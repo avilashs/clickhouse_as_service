@@ -1,0 +1,35 @@
+# Test-only: the attack suite's canary (test/attack). Lives in basalt-system on the control
+# pool; tenant pods must never be able to reach it.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: attack-canary, namespace: basalt-system}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: attack-canary}}
+  template:
+    metadata: {labels: {app: attack-canary}}
+    spec:
+      nodeSelector: {basalt.io/pool: control}
+      tolerations: [{key: basalt.io/pool, operator: Equal, value: control, effect: NoSchedule}]
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: canary
+        image: basalt-cell:dev
+        imagePullPolicy: IfNotPresent
+        command: [/attack-canary]
+        resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: attack-canary, namespace: basalt-system}
+spec:
+  selector: {app: attack-canary}
+  ports:
+  - {name: http, port: 8080}
+  - {name: mysql, port: 3306}
+  - {name: postgres, port: 5432}
+  - {name: redis, port: 6379}
+  - {name: mongo, port: 27017}
+  - {name: native, port: 9000}

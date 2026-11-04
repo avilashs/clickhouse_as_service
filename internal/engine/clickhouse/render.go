@@ -26,7 +26,9 @@ const (
 	certDir          = "/etc/basalt/certs"
 	ProviderUser     = "provider_ops"
 	CustomerAdmin    = "admin"
-	clickhouseUID    = 101
+	// AgentClientCN is the subject of the client certificate the cell agent presents as provider_ops
+	AgentClientCN = "basalt-agent"
+	clickhouseUID = 101
 	// labels and taints of the placement model (design §8)
 	LabelPool             = "basalt.io/pool"
 	LabelDedicatedCluster = "basalt.io/dedicated-cluster"
@@ -183,8 +185,7 @@ func (e Engine) Render(in engine.RenderInput) (engine.Desired, error) {
 			DNSNames: certDNSNames(n, external, serverHosts, keeperHosts),
 		}},
 		SQL: &engine.SQLTarget{
-			Hosts: sqlHosts, Port: nativeTLSPort, User: ProviderUser,
-			PasswordRef: engine.SecretRef(ProviderPasswordSecret(c.ID)), CASecret: certSecret,
+			Hosts: sqlHosts, Port: nativeTLSPort, User: ProviderUser, ClientCertificateCN: AgentClientCN, CASecret: certSecret,
 		},
 		Bootstrap: bootstrapSQL(c.ID),
 		Expect: engine.Expectation{
@@ -243,8 +244,7 @@ func usersSecretObj(n names) engine.Object {
 		"metadata": map[string]any{"name": usersSecret, "namespace": n.ns, "labels": labels(n, "credentials")},
 		"type":     "Opaque",
 		"stringData": map[string]any{
-			"provider_ops_sha256": engine.SecretSHA256Ref(ProviderPasswordSecret(n.id)),
-			"default_sha256":      engine.SecretSHA256Ref(DefaultPasswordSecret(n.id)),
+			"default_sha256": engine.SecretSHA256Ref(DefaultPasswordSecret(n.id)),
 		},
 	}
 }
@@ -274,7 +274,9 @@ const opensslXML = `<clickhouse>
       <certificateFile>` + certDir + `/server.crt</certificateFile>
       <privateKeyFile>` + certDir + `/server.key</privateKeyFile>
       <caConfig>` + certDir + `/ca.crt</caConfig>
-      <verificationMode>none</verificationMode>
+      <!-- relaxed: request a client certificate and verify it against the cell CA when one is
+           presented (the provider user authenticates with one); clients without one are fine -->
+      <verificationMode>relaxed</verificationMode>
       <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
     </server>
     <client>
@@ -421,11 +423,14 @@ func server(n names, c model.Cluster, size model.Size, cell model.Cell) engine.O
 				"zookeeper": map[string]any{"nodes": keeperNodes},
 				"clusters": []any{map[string]any{
 					"name": clusterName, "secure": "yes", "insecure": "no",
-					"layout": map[string]any{"shardsCount": c.Spec.Shards, "replicasCount": c.Spec.ReplicasPerShard},
+					// our per-shard PDBs replace the operator's single cluster-wide one: a pod
+					// matching two PDBs cannot be evicted at all, which blocks node drains (M3)
+					"pdbManaged": "no",
+					"layout":     map[string]any{"shardsCount": c.Spec.Shards, "replicasCount": c.Spec.ReplicasPerShard},
 				}},
 				"users":    users(),
 				"profiles": profiles(size),
-				"settings": serverSettings(c, size, cell),
+				"settings": serverSettings(n, c, size, cell),
 				"files":    map[string]any{"basalt-openssl.xml": opensslXML, "basalt-access.xml": accessXML},
 			},
 			"templates": map[string]any{
@@ -456,13 +461,15 @@ func users() map[string]any {
 		"default/password_sha256_hex": secretKeyRef(usersSecret, "default_sha256"),
 		"default/networks/ip":         []any{"127.0.0.1", "::1"},
 		"default/profile":             "default",
-		// pod CIDR; NetworkPolicy narrows it to the agent and operator namespaces
-		ProviderUser + "/password_sha256_hex":      secretKeyRef(usersSecret, "provider_ops_sha256"),
-		ProviderUser + "/networks/ip":              []any{"10.0.0.0/8"},
-		ProviderUser + "/profile":                  "provider",
-		ProviderUser + "/quota":                    "default",
-		ProviderUser + "/access_management":        1,
-		ProviderUser + "/named_collection_control": 1,
+		// The provider user authenticates only with a client certificate signed by the cell CA
+		// (CN basalt-agent), never a password: tenants reach the servers through the in-cell gateway,
+		// so an IP allowlist alone would let anyone holding a password in (M3 finding).
+		ProviderUser + "/ssl_certificates/common_name": AgentClientCN,
+		ProviderUser + "/networks/ip":                  []any{"10.0.0.0/8"},
+		ProviderUser + "/profile":                      "provider",
+		ProviderUser + "/quota":                        "default",
+		ProviderUser + "/access_management":            1,
+		ProviderUser + "/named_collection_control":     1,
 	}
 }
 
@@ -476,6 +483,8 @@ func profiles(size model.Size) map[string]any {
 	mem := strconv.FormatInt(size.MemoryBytes*8/10, 10) // per-query cap: 80% of the pod's memory
 	return map[string]any{
 		"default/max_memory_usage":                                                                     mem,
+		"default/max_memory_usage_for_user":                                                            mem,
+		"default/allow_introspection_functions":                                                        0,
 		"default/max_threads":                                                                          size.MaxThreads,
 		"default/max_concurrent_queries_for_user":                                                      size.MaxConcurrent,
 		"default/database_replicated_allow_only_replicated_engine":                                     1,
@@ -483,6 +492,9 @@ func profiles(size model.Size) map[string]any {
 		"default/wait_for_async_insert":                                                                1,
 		"default/constraints/max_memory_usage/min":                                                     1,
 		"default/constraints/max_memory_usage/max":                                                     mem,
+		"default/constraints/max_memory_usage_for_user/min":                                            1,
+		"default/constraints/max_memory_usage_for_user/max":                                            mem,
+		"default/constraints/allow_introspection_functions/const":                                      "",
 		"default/constraints/max_threads/max":                                                          size.MaxThreads,
 		"default/constraints/max_concurrent_queries_for_user/max":                                      size.MaxConcurrent,
 		"default/constraints/database_replicated_allow_only_replicated_engine/const":                   "",
@@ -495,7 +507,7 @@ func profiles(size model.Size) map[string]any {
 	}
 }
 
-func serverSettings(c model.Cluster, size model.Size, cell model.Cell) map[string]any {
+func serverSettings(n names, c model.Cluster, size model.Size, cell model.Cell) map[string]any {
 	s := map[string]any{
 		"listen_host":             "0.0.0.0",
 		"http_port":               "_removed_",
@@ -508,6 +520,16 @@ func serverSettings(c model.Cluster, size model.Size, cell model.Cell) map[strin
 		"interserver_https_port":  interserverPort,
 		"max_concurrent_queries":  size.MaxConcurrent,
 		"max_server_memory_usage": serverMemoryLimit(size),
+		// Defence in depth behind the grant model (M3): URL-type functions, engines and
+		// dictionary sources may reach no host at all. This is the only SQL-level control on
+		// HTTP, MySQL, PostgreSQL, Redis, MongoDB, Cassandra and remote ClickHouse dictionary
+		// sources, which ClickHouse does not check against READ ON <source> grants (attack
+		// S17g). A section with an entry allows only that entry; ".invalid" never resolves
+		// (RFC 2606). Opt-in egress (design §9.3) will add the customer's hosts here.
+		"remote_url_allow_hosts/host": denyAllHost,
+		// executable() and executable UDFs read scripts from here: a directory that does not
+		// exist and that nothing can create (read-only image paths, no volume)
+		"user_scripts_path": "/nonexistent/basalt-no-user-scripts/",
 		"access_control_improvements/table_engines_require_grant":              true,
 		"access_control_improvements/enable_read_write_grants":                 true,
 		"access_control_improvements/settings_constraints_replace_previous":    true,
@@ -521,6 +543,9 @@ func serverSettings(c model.Cluster, size model.Size, cell model.Cell) map[strin
 	}
 	return s
 }
+
+// denyAllHost is the single remote_url_allow_hosts entry: a name that cannot exist.
+const denyAllHost = "basalt-no-egress.invalid"
 
 func secretKeyRef(name, key string) map[string]any {
 	return map[string]any{"valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": name, "key": key}}}

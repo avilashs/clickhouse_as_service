@@ -40,7 +40,7 @@ if ! pgrep -f "temporal server start-dev" >/dev/null; then
   until temporal operator cluster health >/dev/null 2>&1; do sleep 1; done
 fi
 
-CGO_ENABLED=0 go build -trimpath -o bin/ ./cmd/...
+CGO_ENABLED=0 go build -trimpath -o bin/ ./cmd/... && CGO_ENABLED=0 go build -trimpath -o bin/attack-canary ./test/attack/canary
 
 hack/restart.sh api worker
 

@@ -261,11 +261,31 @@ func TestConstraintsInDefaultProfile(t *testing.T) {
 	}
 }
 
+func TestProviderUserUsesCertificateOnly(t *testing.T) {
+	d, _ := Engine{}.Render(testInput())
+	users := dig(find(t, d, "ClickHouseInstallation"), "spec", "configuration", "users").(map[string]any)
+	for k := range users {
+		if strings.HasPrefix(k, ProviderUser+"/password") {
+			t.Errorf("provider user must not have a password (%s): it would be usable through the tenant gateway", k)
+		}
+	}
+	if users[ProviderUser+"/ssl_certificates/common_name"] != AgentClientCN {
+		t.Error("provider user must authenticate with the agent's client certificate")
+	}
+	if d.SQL.ClientCertificateCN != AgentClientCN || d.SQL.PasswordRef != "" {
+		t.Error("the agent must connect with its client certificate")
+	}
+	if !strings.Contains(opensslXML, "<verificationMode>relaxed</verificationMode>") {
+		t.Error("servers must request client certificates")
+	}
+}
+
 func TestNoSecretValuesInRender(t *testing.T) {
 	d, _ := Engine{}.Render(testInput())
 	b, _ := yaml.Marshal(d)
 	refs := engine.SecretNames(string(b))
-	want := map[string]bool{ProviderPasswordSecret("cabc123def45"): true, DefaultPasswordSecret("cabc123def45"): true, AdminPasswordSecret("cabc123def45"): true}
+	// provider_ops has no password at all (client-certificate authentication)
+	want := map[string]bool{DefaultPasswordSecret("cabc123def45"): true, AdminPasswordSecret("cabc123def45"): true}
 	seen := map[string]bool{}
 	for _, r := range refs {
 		if !want[r] {

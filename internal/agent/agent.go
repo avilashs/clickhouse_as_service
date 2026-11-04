@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -67,7 +68,9 @@ type Agent struct {
 	Log             *slog.Logger
 	Interval        time.Duration
 
-	ca *CA
+	ca          *CA
+	certMu      sync.Mutex
+	clientCerts map[string]tls.Certificate
 }
 
 // Run loops until ctx is done.
@@ -373,11 +376,37 @@ func (a *Agent) observeObjects(ctx context.Context, e api.DesiredEntry, obs *eng
 	}
 }
 
+// clientCert returns a cached client certificate for cn, re-minted a week before expiry.
+func (a *Agent) clientCert(cn string) (tls.Certificate, error) {
+	a.certMu.Lock()
+	defer a.certMu.Unlock()
+	if c, ok := a.clientCerts[cn]; ok && time.Until(c.Leaf.NotAfter) > 7*24*time.Hour {
+		return c, nil
+	}
+	c, err := a.ca.ClientCertificate(cn, 30*24*time.Hour)
+	if err != nil {
+		return c, err
+	}
+	if a.clientCerts == nil {
+		a.clientCerts = map[string]tls.Certificate{}
+	}
+	a.clientCerts[cn] = c
+	return c, nil
+}
+
 func (a *Agent) conn(d engine.Desired, host string) (clickhouse.Conn, error) {
+	tc := &tls.Config{RootCAs: a.ca.Pool(), ServerName: host, MinVersion: tls.VersionTLS12}
+	if d.SQL.ClientCertificateCN != "" {
+		c, err := a.clientCert(d.SQL.ClientCertificateCN)
+		if err != nil {
+			return nil, err
+		}
+		tc.Certificates = []tls.Certificate{c}
+	}
 	return clickhouse.Open(&clickhouse.Options{
 		Addr:        []string{fmt.Sprintf("%s:%d", host, d.SQL.Port)},
 		Auth:        clickhouse.Auth{Database: "default", Username: d.SQL.User, Password: d.SQL.PasswordRef},
-		TLS:         &tls.Config{RootCAs: a.ca.Pool(), ServerName: host, MinVersion: tls.VersionTLS12},
+		TLS:         tc,
 		DialTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second,
 	})
 }

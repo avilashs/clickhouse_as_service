@@ -22,7 +22,7 @@ func bootstrapSQL(clusterID string) []string {
 		}
 		engines += "TABLE ENGINE ON " + e
 	}
-	return []string{
+	return append([]string{
 		"CREATE ROLE IF NOT EXISTS customer_admin",
 		"GRANT SELECT, INSERT, ALTER, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE DICTIONARY, CREATE FUNCTION, " +
 			"DROP DATABASE, DROP TABLE, DROP VIEW, DROP DICTIONARY, DROP FUNCTION, TRUNCATE, OPTIMIZE, SHOW, KILL QUERY, dictGet " +
@@ -32,15 +32,42 @@ func bootstrapSQL(clusterID string) []string {
 		"REVOKE SELECT ON system.zookeeper_connection FROM customer_admin",
 		"REVOKE SELECT ON system.zookeeper_log FROM customer_admin",
 		"REVOKE ALL ON _basalt.* FROM customer_admin",
+		// system tables are read-only to tenants: they underpin monitoring and the provider's
+		// row policies (M3: without this, ALTER/DROP/TRUNCATE ON *.* reached system.query_log)
+		"REVOKE INSERT, ALTER, CREATE TABLE, CREATE VIEW, CREATE DICTIONARY, DROP TABLE, DROP VIEW, DROP DICTIONARY, " +
+			"TRUNCATE, OPTIMIZE ON system.* FROM customer_admin",
 		"GRANT CLUSTER ON *.* TO customer_admin",
 		"GRANT " + engines + " TO customer_admin WITH GRANT OPTION",
 		"GRANT CREATE USER, ALTER USER, DROP USER, CREATE ROLE, ALTER ROLE, DROP ROLE, CREATE ROW POLICY, ALTER ROW POLICY, " +
 			"DROP ROW POLICY, CREATE QUOTA, ALTER QUOTA, DROP QUOTA, SHOW ACCESS ON *.* TO customer_admin",
+		"REVOKE CREATE ROW POLICY, ALTER ROW POLICY, DROP ROW POLICY ON system.* FROM customer_admin",
 		"GRANT SYSTEM FLUSH LOGS, SYSTEM SYNC REPLICA, SYSTEM DROP QUERY CACHE, SYSTEM MERGES, SYSTEM TTL MERGES, " +
 			"SYSTEM MOVES, SYSTEM FETCHES, SYSTEM RESTART REPLICA ON *.* TO customer_admin",
 		"CREATE USER IF NOT EXISTS " + CustomerAdmin + " IDENTIFIED WITH sha256_hash BY '" +
 			engine.SecretSHA256Ref(AdminPasswordSecret(clusterID)) + "'",
 		"GRANT customer_admin TO " + CustomerAdmin,
 		"ALTER USER " + CustomerAdmin + " DEFAULT ROLE customer_admin",
+	}, hideProviderActivity()...)
+}
+
+// providerUsers act for the platform; tenants must not see their queries (which include the
+// access bootstrap) in the log tables tenants may read.
+var providerUsers = []string{ProviderUser, "default", "clickhouse_operator"}
+
+// hideProviderActivity adds restrictive row policies for everyone except the provider user.
+// "TO ALL EXCEPT" also covers users the tenant creates later, with or without a role.
+func hideProviderActivity() []string {
+	in := ""
+	for i, u := range providerUsers {
+		if i > 0 {
+			in += ", "
+		}
+		in += "'" + u + "'"
 	}
+	var out []string
+	for _, t := range []string{"query_log", "query_thread_log", "query_views_log", "processes", "session_log"} {
+		out = append(out, "CREATE ROW POLICY OR REPLACE basalt_hide_provider ON system."+t+
+			" AS restrictive FOR SELECT USING user NOT IN ("+in+") TO ALL EXCEPT "+ProviderUser)
+	}
+	return out
 }

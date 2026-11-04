@@ -8,6 +8,8 @@ bootstrap:
 - REVOKE SELECT ON system.zookeeper_connection FROM customer_admin
 - REVOKE SELECT ON system.zookeeper_log FROM customer_admin
 - REVOKE ALL ON _basalt.* FROM customer_admin
+- REVOKE INSERT, ALTER, CREATE TABLE, CREATE VIEW, CREATE DICTIONARY, DROP TABLE,
+  DROP VIEW, DROP DICTIONARY, TRUNCATE, OPTIMIZE ON system.* FROM customer_admin
 - GRANT CLUSTER ON *.* TO customer_admin
 - GRANT TABLE ENGINE ON ReplicatedMergeTree, TABLE ENGINE ON ReplicatedReplacingMergeTree,
   TABLE ENGINE ON ReplicatedAggregatingMergeTree, TABLE ENGINE ON ReplicatedSummingMergeTree,
@@ -19,12 +21,28 @@ bootstrap:
 - GRANT CREATE USER, ALTER USER, DROP USER, CREATE ROLE, ALTER ROLE, DROP ROLE, CREATE
   ROW POLICY, ALTER ROW POLICY, DROP ROW POLICY, CREATE QUOTA, ALTER QUOTA, DROP QUOTA,
   SHOW ACCESS ON *.* TO customer_admin
+- REVOKE CREATE ROW POLICY, ALTER ROW POLICY, DROP ROW POLICY ON system.* FROM customer_admin
 - GRANT SYSTEM FLUSH LOGS, SYSTEM SYNC REPLICA, SYSTEM DROP QUERY CACHE, SYSTEM MERGES,
   SYSTEM TTL MERGES, SYSTEM MOVES, SYSTEM FETCHES, SYSTEM RESTART REPLICA ON *.* TO
   customer_admin
 - CREATE USER IF NOT EXISTS admin IDENTIFIED WITH sha256_hash BY '{{secret:clusters/cabc123def45/admin|sha256}}'
 - GRANT customer_admin TO admin
 - ALTER USER admin DEFAULT ROLE customer_admin
+- CREATE ROW POLICY OR REPLACE basalt_hide_provider ON system.query_log AS restrictive
+  FOR SELECT USING user NOT IN ('provider_ops', 'default', 'clickhouse_operator')
+  TO ALL EXCEPT provider_ops
+- CREATE ROW POLICY OR REPLACE basalt_hide_provider ON system.query_thread_log AS
+  restrictive FOR SELECT USING user NOT IN ('provider_ops', 'default', 'clickhouse_operator')
+  TO ALL EXCEPT provider_ops
+- CREATE ROW POLICY OR REPLACE basalt_hide_provider ON system.query_views_log AS restrictive
+  FOR SELECT USING user NOT IN ('provider_ops', 'default', 'clickhouse_operator')
+  TO ALL EXCEPT provider_ops
+- CREATE ROW POLICY OR REPLACE basalt_hide_provider ON system.processes AS restrictive
+  FOR SELECT USING user NOT IN ('provider_ops', 'default', 'clickhouse_operator')
+  TO ALL EXCEPT provider_ops
+- CREATE ROW POLICY OR REPLACE basalt_hide_provider ON system.session_log AS restrictive
+  FOR SELECT USING user NOT IN ('provider_ops', 'default', 'clickhouse_operator')
+  TO ALL EXCEPT provider_ops
 certificates:
 - dnsNames:
   - cabc123def45.cell1.db.example.com
@@ -85,7 +103,6 @@ objects:
     namespace: ch-cabc123def45
   stringData:
     default_sha256: '{{secret:clusters/cabc123def45/default|sha256}}'
-    provider_ops_sha256: '{{secret:clusters/cabc123def45/provider_ops|sha256}}'
   type: Opaque
 - apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
@@ -273,7 +290,9 @@ objects:
                 <certificateFile>/etc/basalt/certs/server.crt</certificateFile>
                 <privateKeyFile>/etc/basalt/certs/server.key</privateKeyFile>
                 <caConfig>/etc/basalt/certs/ca.crt</caConfig>
-                <verificationMode>none</verificationMode>
+                <!-- relaxed: request a client certificate and verify it against the cell CA when one is
+                     presented (the provider user authenticates with one); clients without one are fine -->
+                <verificationMode>relaxed</verificationMode>
                 <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
               </server>
               <client>
@@ -378,6 +397,7 @@ objects:
           replicasCount: 2
           shardsCount: 1
         name: default
+        pdbManaged: "no"
         secure: "yes"
       files:
         basalt-access.xml: |
@@ -394,7 +414,9 @@ objects:
                 <certificateFile>/etc/basalt/certs/server.crt</certificateFile>
                 <privateKeyFile>/etc/basalt/certs/server.key</privateKeyFile>
                 <caConfig>/etc/basalt/certs/ca.crt</caConfig>
-                <verificationMode>none</verificationMode>
+                <!-- relaxed: request a client certificate and verify it against the cell CA when one is
+                     presented (the provider user authenticates with one); clients without one are fine -->
+                <verificationMode>relaxed</verificationMode>
                 <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
               </server>
               <client>
@@ -406,16 +428,21 @@ objects:
             </openSSL>
           </clickhouse>
       profiles:
+        default/allow_introspection_functions: 0
         default/async_insert: 1
+        default/constraints/allow_introspection_functions/const: ""
         default/constraints/database_replicated_allow_only_replicated_engine/const: ""
         default/constraints/max_concurrent_queries_for_user/max: 20
         default/constraints/max_memory_usage/max: "1717986918"
         default/constraints/max_memory_usage/min: 1
+        default/constraints/max_memory_usage_for_user/max: "1717986918"
+        default/constraints/max_memory_usage_for_user/min: 1
         default/constraints/max_threads/max: 2
         default/constraints/wait_for_async_insert/const: ""
         default/database_replicated_allow_only_replicated_engine: 1
         default/max_concurrent_queries_for_user: 20
         default/max_memory_usage: "1717986918"
+        default/max_memory_usage_for_user: "1717986918"
         default/max_threads: 2
         default/wait_for_async_insert: 1
         provider/constraints/database_replicated_allow_only_replicated_engine/changeable_in_readonly: ""
@@ -438,9 +465,11 @@ objects:
         max_server_memory_usage: 1825361100
         mysql_port: _removed_
         postgresql_port: _removed_
+        remote_url_allow_hosts/host: basalt-no-egress.invalid
         skip_binary_checksum_checks: 1
         tcp_port: _removed_
         tcp_port_secure: 9440
+        user_scripts_path: /nonexistent/basalt-no-user-scripts/
       users:
         default/networks/ip:
         - 127.0.0.1
@@ -455,13 +484,9 @@ objects:
         provider_ops/named_collection_control: 1
         provider_ops/networks/ip:
         - 10.0.0.0/8
-        provider_ops/password_sha256_hex:
-          valueFrom:
-            secretKeyRef:
-              key: provider_ops_sha256
-              name: ch-users
         provider_ops/profile: provider
         provider_ops/quota: default
+        provider_ops/ssl_certificates/common_name: basalt-agent
       zookeeper:
         nodes:
         - host: keeper-cabc123def45
@@ -628,9 +653,9 @@ objects:
         port: 8443
 sql:
   caSecret: ch-certs
+  clientCertificateCN: basalt-agent
   hosts:
   - chi-cabc123def45-default-0-0.ch-cabc123def45.svc.cluster.local
   - chi-cabc123def45-default-0-1.ch-cabc123def45.svc.cluster.local
-  passwordRef: '{{secret:clusters/cabc123def45/provider_ops}}'
   port: 9440
   user: provider_ops

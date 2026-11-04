@@ -1,0 +1,87 @@
+# Security admission (M3), alongside placement.yaml.
+#   basalt-keeper-pods         Keeper pods: control pool only, one per node, baseline hardening
+#   basalt-agent-write-fence   the cell agent may write only inside tenant namespaces (ch-*)
+#                              and the cell CA secret; a compromised agent cannot change
+#                              kube-system, basalt-system or the gateway
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: basalt-keeper-pods}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - {apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [pods]}
+    objectSelector: {matchLabels: {basalt.io/component: keeper}}
+  variables:
+  - {name: ns, expression: "has(object.spec.nodeSelector) ? object.spec.nodeSelector : {}"}
+  - {name: tols, expression: "has(object.spec.tolerations) ? object.spec.tolerations : []"}
+  - name: containers
+    expression: "object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])"
+  - name: required
+    expression: >-
+      has(object.spec.affinity) && has(object.spec.affinity.podAntiAffinity) &&
+      has(object.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution) ?
+      object.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution : []
+  validations:
+  - expression: "'basalt.io/pool' in variables.ns && variables.ns['basalt.io/pool'] == 'control'"
+    message: "Keeper pods must select the control pool"
+  - expression: >-
+      variables.tols.all(t, !has(t.key) ? t.operator != 'Exists' :
+      (!t.key.startsWith('basalt.io/') || (t.key == 'basalt.io/pool' && has(t.value) && t.value == 'control')))
+    message: "Keeper pods may only tolerate the control-pool taint"
+  - expression: "variables.required.exists(term, term.topologyKey == 'kubernetes.io/hostname')"
+    message: "Keeper replicas need required hostname anti-affinity (one replica per node)"
+  - expression: "has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false"
+    message: "Keeper pods must not mount a ServiceAccount token"
+  - expression: "has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot"
+    message: "Keeper must run as non-root"
+  - expression: >-
+      variables.containers.all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) &&
+      !c.securityContext.allowPrivilegeEscalation && !(has(c.securityContext.privileged) && c.securityContext.privileged))
+    message: "Keeper containers must not be privileged or escalate privileges"
+  - expression: >-
+      variables.containers.all(c, has(c.resources) && has(c.resources.requests) && has(c.resources.limits) &&
+      'memory' in c.resources.requests && 'memory' in c.resources.limits &&
+      quantity(c.resources.requests.memory) == quantity(c.resources.limits.memory))
+    message: "Keeper memory requests must equal limits (CPU may burst on the control pool only)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: basalt-keeper-pods}
+spec:
+  policyName: basalt-keeper-pods
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: basalt-agent-write-fence}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - {apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE, DELETE], resources: [namespaces, secrets, configmaps, services]}
+    - {apiGroups: [networking.k8s.io], apiVersions: [v1], operations: [CREATE, UPDATE, DELETE], resources: [networkpolicies]}
+    - {apiGroups: [policy], apiVersions: [v1], operations: [CREATE, UPDATE, DELETE], resources: [poddisruptionbudgets]}
+    - {apiGroups: [clickhouse.altinity.com], apiVersions: ["*"], operations: [CREATE, UPDATE, DELETE], resources: [clickhouseinstallations]}
+    - {apiGroups: [clickhouse-keeper.altinity.com], apiVersions: ["*"], operations: [CREATE, UPDATE, DELETE], resources: [clickhousekeeperinstallations]}
+    - {apiGroups: [gateway.networking.k8s.io], apiVersions: ["*"], operations: [CREATE, UPDATE, DELETE], resources: [tlsroutes]}
+  matchConditions:
+  - name: is-agent
+    expression: "request.userInfo.username == 'system:serviceaccount:basalt-system:basalt-agent'"
+  validations:
+  - expression: >-
+      request.namespace.startsWith('ch-') ||
+      (request.resource.resource == 'namespaces' && request.name.startsWith('ch-')) ||
+      (request.namespace == 'basalt-system' && request.resource.resource == 'secrets' && request.name == 'basalt-cell-ca')
+    messageExpression: "'the cell agent may only write inside tenant namespaces (ch-*), not ' + request.resource.resource + ' ' + request.namespace + '/' + request.name"
+  - expression: >-
+      request.resource.resource != 'namespaces' || request.operation == 'DELETE' ||
+      (has(object.metadata.labels) && 'basalt.io/managed' in object.metadata.labels && object.metadata.labels['basalt.io/managed'] == 'true')
+    message: "namespaces written by the cell agent must be labelled basalt.io/managed=true"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: basalt-agent-write-fence}
+spec:
+  policyName: basalt-agent-write-fence
+  validationActions: [Deny]

@@ -74,7 +74,6 @@ func (a *Activities) ReserveCapacity(ctx context.Context, in ReserveInput) error
 // EnsureClusterSecrets creates the cluster's credentials in the secret manager (get-or-create).
 func (a *Activities) EnsureClusterSecrets(ctx context.Context, clusterID string) error {
 	for _, name := range []string{
-		clickhouse.ProviderPasswordSecret(clusterID),
 		clickhouse.DefaultPasswordSecret(clusterID),
 		clickhouse.AdminPasswordSecret(clusterID),
 	} {

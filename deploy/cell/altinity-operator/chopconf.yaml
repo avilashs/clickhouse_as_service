@@ -1,0 +1,12 @@
+# Operator configuration overrides, merged by the operator with its bundled defaults.
+# The bundle reconciles ClickHouseKeeperInstallations one at a time across the whole cell;
+# with several clusters being created that serialises every create behind the others
+# (seen in M2/M3 as multi-minute queues).
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseOperatorConfiguration
+metadata: {name: basalt-overrides, namespace: kube-system}
+spec:
+  reconcile:
+    runtime:
+      reconcileCHIsThreadsNumber: 10
+      reconcileCHKsThreadsNumber: 10

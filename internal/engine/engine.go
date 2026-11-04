@@ -44,8 +44,11 @@ type SQLTarget struct {
 	Hosts       []string `json:"hosts"` // in-cluster DNS names, one per replica
 	Port        int      `json:"port"`
 	User        string   `json:"user"`
-	PasswordRef string   `json:"passwordRef"` // secret reference, resolved by the control plane when served
-	CASecret    string   `json:"caSecret"`    // Secret in the cluster namespace holding ca.crt
+	PasswordRef string   `json:"passwordRef,omitempty"` // secret reference, resolved by the control plane when served
+	// ClientCertificateCN: authenticate with a client certificate signed by the cell CA
+	// (minted by the agent) instead of a password
+	ClientCertificateCN string `json:"clientCertificateCN,omitempty"`
+	CASecret            string `json:"caSecret"` // Secret in the cluster namespace holding ca.crt
 }
 
 // Desired is everything a cell agent needs to converge one cluster.

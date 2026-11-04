@@ -63,5 +63,5 @@ kubectl create namespace basalt-system --dry-run=client -o yaml | kubectl apply 
 kubectl apply -f deploy/cell/envoy-gateway/gateway.yaml >/dev/null
 kubectl -n basalt-system wait gateway/shared --for=condition=Programmed --timeout=180s
 # placement admission (design §8.3); applied last so the platform components above are in place
-kubectl apply -f deploy/cell/policies/placement.yaml >/dev/null
+kubectl apply -f deploy/cell/policies/placement.yaml -f deploy/cell/policies/security.yaml >/dev/null
 echo "cell $CLUSTER ready"
