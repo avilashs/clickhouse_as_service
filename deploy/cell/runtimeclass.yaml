@@ -1,0 +1,9 @@
+# Sandbox for shared-tier ClickHouse servers (ADR-0003). Pods using it are scheduled onto
+# nodes that have runsc, and tolerate only the shared pool taint.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata: {name: gvisor}
+handler: runsc
+scheduling:
+  nodeSelector: {basalt.io/sandbox: gvisor}
+  tolerations: [{key: basalt.io/pool, operator: Equal, value: shared, effect: NoSchedule}]

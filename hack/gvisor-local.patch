@@ -1,0 +1,30 @@
+--- a/pkg/shim/v1/manager.go
++++ b/pkg/shim/v1/manager.go
+@@ -199,7 +199,11 @@
+ 		return shim.BootstrapParams{}, err
+ 	}
+ 	if err := sys.SetOOMScore(cmd.Process.Pid, oomScoreMax); err != nil {
+-		return shim.BootstrapParams{}, fmt.Errorf("failed to set OOM Score on shim: %w", err)
++		// LOCAL KIND CELLS ONLY (Basalt hack/build-gvisor.sh): sandboxed CI VMs forbid writing
++		// oom_score_adj; this mirrors containerd's restrict_oom_score_adj. The error must not be
++		// printed: containerd parses the shim's combined start output as bootstrap parameters.
++		// Production cells install unmodified upstream gVisor releases.
++		_ = err
+ 	}
+ 	cu.Release()
+ 	return shim.BootstrapParams{Version: 2, Address: address, Protocol: "ttrpc"}, nil
+--- a/runsc/cgroup/cgroup.go
++++ b/runsc/cgroup/cgroup.go
+@@ -340,6 +340,12 @@
+ 				if cgroupPath, ok := paths[opt]; ok {
+ 					rootDir := fields[3]
+ 					if rootDir != "/" {
++						// LOCAL KIND CELLS ONLY: kind (cgroup v1) bind-mounts the /kubelet and
++						// /kubelet.slice subtrees inside each controller hierarchy. Skip
++						// submounts that do not contain this process's cgroup.
++						if cgroupPath != rootDir && !strings.HasPrefix(cgroupPath, rootDir+"/") {
++							continue
++						}
+ 						// When cgroup is in submount, remove repeated path components from
+ 						// cgroup path to avoid duplicating them.
+ 						relCgroupPath, err := filepath.Rel(rootDir, cgroupPath)

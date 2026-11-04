@@ -1,0 +1,50 @@
+# Continuous placement audit (design §8.4): read-only, exports basalt_placement_violations.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: basalt-audit, namespace: basalt-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: basalt-audit}
+rules:
+- apiGroups: [""]
+  resources: [nodes, pods]
+  verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: basalt-audit}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: basalt-audit}
+subjects: [{kind: ServiceAccount, name: basalt-audit, namespace: basalt-system}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: basalt-audit, namespace: basalt-system}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: basalt-audit}}
+  template:
+    metadata:
+      labels: {app: basalt-audit}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9102"}
+    spec:
+      serviceAccountName: basalt-audit
+      nodeSelector: {basalt.io/pool: control}
+      tolerations: [{key: basalt.io/pool, operator: Equal, value: control, effect: NoSchedule}]
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: audit
+        image: basalt-cell:dev
+        imagePullPolicy: IfNotPresent
+        command: [/basalt-audit, --listen=:9102, --interval=30s, --grace=30m, --sandbox=gvisor]
+        ports: [{name: metrics, containerPort: 9102}]
+        readinessProbe: {httpGet: {path: /healthz, port: metrics}}
+        resources: {requests: {cpu: 20m, memory: 64Mi}, limits: {memory: 128Mi}}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: basalt-audit, namespace: basalt-system}
+spec:
+  selector: {app: basalt-audit}
+  ports: [{name: metrics, port: 9102, targetPort: metrics}]

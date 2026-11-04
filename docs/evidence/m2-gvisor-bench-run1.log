@@ -1,0 +1,12 @@
+== sandbox placement (pod cgroup must contain the sandbox processes)
+runc: kernel=6.18.44-fc-v233 pod_cgroup_mem_limit=2147483648 usage=117284864 cpu_quota=100000
+   in-pod uname: 6.18.44-fc-v233
+gvisor: kernel=6.18.44-fc-v233 pod_cgroup_mem_limit=2147483648 usage=124256256 cpu_quota=100000
+   in-pod uname: 4.19.0-gvisor
+== memory cap (runaway query must fail with code 241, pod must not restart)
+runc: Code: 241 restarts=0
+gvisor: Code: 241 restarts=0
+== benchmark (seconds, best of 3)
+runtime      cpu  insert30M  optimize   groupby    point
+runc       0.644     10.809    10.913     2.135    0.005
+gvisor     4.909     27.190    84.387    10.722     0.02

@@ -106,10 +106,10 @@ type CellCapacity struct {
 func (s *Store) EnsureCell(ctx context.Context, c model.Cell, maxClusters int, agentTokenSHA256 string, caps []CellCapacity) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO cells (id, region, state, profile, domain, max_clusters, agent_token_sha256)
-			VALUES ($1,$2,$3,$4,$5,$6,$7)
-			ON CONFLICT (id) DO UPDATE SET region=$2, profile=$4, domain=$5, max_clusters=$6, agent_token_sha256=$7`,
-			c.ID, c.Region, c.State, c.Profile, c.Domain, maxClusters, agentTokenSHA256)
+			INSERT INTO cells (id, region, state, profile, domain, max_clusters, agent_token_sha256, sandbox_runtime)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			ON CONFLICT (id) DO UPDATE SET region=$2, profile=$4, domain=$5, max_clusters=$6, agent_token_sha256=$7, sandbox_runtime=$8`,
+			c.ID, c.Region, c.State, c.Profile, c.Domain, maxClusters, agentTokenSHA256, c.Sandbox)
 		if err != nil {
 			return err
 		}
@@ -128,8 +128,8 @@ func (s *Store) EnsureCell(ctx context.Context, c model.Cell, maxClusters int, a
 func (s *Store) GetCell(ctx context.Context, id string) (model.Cell, string, error) {
 	var c model.Cell
 	var tokenHash string
-	err := s.pool.QueryRow(ctx, `SELECT id, region, state, profile, domain, ca_pem, agent_token_sha256 FROM cells WHERE id=$1`, id).
-		Scan(&c.ID, &c.Region, &c.State, &c.Profile, &c.Domain, &c.CAPEM, &tokenHash)
+	err := s.pool.QueryRow(ctx, `SELECT id, region, state, profile, domain, ca_pem, agent_token_sha256, sandbox_runtime FROM cells WHERE id=$1`, id).
+		Scan(&c.ID, &c.Region, &c.State, &c.Profile, &c.Domain, &c.CAPEM, &tokenHash, &c.Sandbox)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, "", ErrNotFound
 	}

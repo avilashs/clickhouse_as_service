@@ -11,6 +11,7 @@ spec:
         replicas: 1
         pod:
           nodeSelector: {basalt.io/pool: control}
+          tolerations: [{key: basalt.io/pool, operator: Equal, value: control, effect: NoSchedule}]
         container:
           image: docker.io/envoyproxy/envoy:distroless-v1.35.0
       envoyService:

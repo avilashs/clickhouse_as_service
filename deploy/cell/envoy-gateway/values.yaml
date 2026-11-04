@@ -4,3 +4,8 @@ deployment:
     imagePullPolicy: IfNotPresent
   pod:
     nodeSelector: {basalt.io/pool: control}
+    tolerations: [{key: basalt.io/pool, operator: Equal, value: control, effect: NoSchedule}]
+certgen:
+  job:
+    nodeSelector: {basalt.io/pool: control}
+    tolerations: [{key: basalt.io/pool, operator: Equal, value: control, effect: NoSchedule}]

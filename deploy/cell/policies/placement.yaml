@@ -1,0 +1,225 @@
+# Placement admission (design §8.3, M2). ValidatingAdmissionPolicy runs in-process in the API
+# server: there is no webhook that could be down or bypassed. Every rule has a negative test
+# in test/e2e/m2.sh.
+#
+#   basalt-server-placement   ClickHouse server pods: tier rules, sandbox, exclusivity, R1/R1b,
+#                             baseline security
+#   basalt-workload-identity  who may create ClickHouse/Keeper pods, and who may bind a pod
+#                             straight to a node (spec.nodeName skips taints)
+#   basalt-statefulset-owner  only the operator creates or changes ClickHouse/Keeper StatefulSets
+#   basalt-toleration-fence   who may tolerate each pool's taint
+#
+# The sandbox RuntimeClass name is a parameter (ConfigMap basalt-system/placement-params).
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: placement-params, namespace: basalt-system}
+data:
+  sandbox: gvisor
+  operatorUser: system:serviceaccount:kube-system:clickhouse-operator
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: basalt-server-placement}
+spec:
+  failurePolicy: Fail
+  paramKind: {apiVersion: v1, kind: ConfigMap}
+  matchConstraints:
+    resourceRules:
+    - {apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [pods]}
+    objectSelector: {matchLabels: {basalt.io/component: clickhouse-server}}
+  variables:
+  - {name: labels, expression: "has(object.metadata.labels) ? object.metadata.labels : {}"}
+  - {name: tier, expression: "'basalt.io/tier' in variables.labels ? variables.labels['basalt.io/tier'] : ''"}
+  - {name: cluster, expression: "'basalt.io/cluster' in variables.labels ? variables.labels['basalt.io/cluster'] : ''"}
+  - {name: chi, expression: "'clickhouse.altinity.com/chi' in variables.labels ? variables.labels['clickhouse.altinity.com/chi'] : ''"}
+  - {name: ns, expression: "has(object.spec.nodeSelector) ? object.spec.nodeSelector : {}"}
+  - {name: tols, expression: "has(object.spec.tolerations) ? object.spec.tolerations : []"}
+  - name: required
+    expression: >-
+      has(object.spec.affinity) && has(object.spec.affinity.podAntiAffinity) &&
+      has(object.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution) ?
+      object.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution : []
+  - name: containers
+    expression: "object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])"
+  validations:
+  - expression: "variables.tier in ['shared', 'dedicated'] && variables.cluster != ''"
+    message: "ClickHouse server pods must carry basalt.io/tier (shared|dedicated) and basalt.io/cluster"
+  # R3: shared tier
+  - expression: "variables.tier != 'shared' || (has(object.spec.runtimeClassName) && object.spec.runtimeClassName == params.data.sandbox)"
+    messageExpression: "'shared-tier ClickHouse servers must run in the sandbox RuntimeClass ' + params.data.sandbox"
+  - expression: "variables.tier != 'shared' || ('basalt.io/pool' in variables.ns && variables.ns['basalt.io/pool'] == 'shared')"
+    message: "shared-tier ClickHouse servers must select the shared pool (basalt.io/pool=shared)"
+  - expression: "variables.tier != 'shared' || !variables.tols.exists(t, has(t.key) && t.key == 'basalt.io/dedicated-cluster')"
+    message: "shared-tier ClickHouse servers must not tolerate dedicated-node taints"
+  # R2: dedicated tier
+  - expression: >-
+      variables.tier != 'dedicated' || ('basalt.io/dedicated-cluster' in variables.ns &&
+      variables.ns['basalt.io/dedicated-cluster'] == variables.cluster &&
+      'basalt.io/pool' in variables.ns && variables.ns['basalt.io/pool'] == 'dedicated')
+    message: "dedicated ClickHouse servers must select their own cluster's node pool"
+  - expression: >-
+      variables.tier != 'dedicated' || variables.tols.all(t, !has(t.key) || !t.key.startsWith('basalt.io/') ||
+      (t.key == 'basalt.io/dedicated-cluster' && has(t.value) && t.value == variables.cluster && t.operator != 'Exists'))
+    message: "dedicated ClickHouse servers may only tolerate their own cluster's taint"
+  - expression: >-
+      variables.tier != 'dedicated' || variables.required.exists(term,
+      term.topologyKey == 'kubernetes.io/hostname' && has(term.namespaceSelector) &&
+      (!has(term.namespaceSelector.matchLabels) || size(term.namespaceSelector.matchLabels) == 0) &&
+      (!has(term.namespaceSelector.matchExpressions) || size(term.namespaceSelector.matchExpressions) == 0) &&
+      has(term.labelSelector) && has(term.labelSelector.matchLabels) &&
+      size(term.labelSelector.matchLabels) == 1 &&
+      'basalt.io/component' in term.labelSelector.matchLabels &&
+      term.labelSelector.matchLabels['basalt.io/component'] == 'clickhouse-server')
+    message: "dedicated ClickHouse servers need required anti-affinity against all ClickHouse servers (namespaceSelector: {}) on kubernetes.io/hostname"
+  # both tiers
+  - expression: "!variables.tols.exists(t, t.operator == 'Exists' && (!has(t.key) || t.key == ''))"
+    message: "ClickHouse servers must not tolerate all taints"
+  - expression: >-
+      variables.required.exists(term, term.topologyKey == 'kubernetes.io/hostname' &&
+      has(term.matchLabelKeys) && 'clickhouse.altinity.com/shard' in term.matchLabelKeys &&
+      has(term.labelSelector) && has(term.labelSelector.matchLabels) &&
+      'clickhouse.altinity.com/chi' in term.labelSelector.matchLabels &&
+      term.labelSelector.matchLabels['clickhouse.altinity.com/chi'] == variables.chi)
+    message: "R1: replicas of one shard need required hostname anti-affinity (matchLabelKeys: clickhouse.altinity.com/shard)"
+  - expression: >-
+      has(object.spec.topologySpreadConstraints) && object.spec.topologySpreadConstraints.exists(c,
+      c.topologyKey == 'topology.kubernetes.io/zone' && c.maxSkew == 1 && c.whenUnsatisfiable == 'DoNotSchedule')
+    message: "R1b: replicas need a required zone spread (maxSkew 1, DoNotSchedule)"
+  - expression: "has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false"
+    message: "ClickHouse servers must not mount a ServiceAccount token"
+  - expression: >-
+      !(has(object.spec.hostNetwork) && object.spec.hostNetwork) && !(has(object.spec.hostPID) && object.spec.hostPID) &&
+      !(has(object.spec.hostIPC) && object.spec.hostIPC) &&
+      (!has(object.spec.volumes) || object.spec.volumes.all(v, !has(v.hostPath)))
+    message: "ClickHouse servers must not use host namespaces or hostPath volumes"
+  - expression: "has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot"
+    message: "ClickHouse servers must run as non-root"
+  - expression: >-
+      variables.containers.all(c, has(c.securityContext) &&
+      !(has(c.securityContext.privileged) && c.securityContext.privileged) &&
+      has(c.securityContext.allowPrivilegeEscalation) && !c.securityContext.allowPrivilegeEscalation &&
+      !(has(c.securityContext.capabilities) && has(c.securityContext.capabilities.add) && size(c.securityContext.capabilities.add) > 0))
+    message: "ClickHouse containers must not be privileged, escalate privileges or add capabilities"
+  - expression: >-
+      variables.containers.all(c, has(c.resources) && has(c.resources.requests) && has(c.resources.limits) &&
+      'cpu' in c.resources.requests && 'memory' in c.resources.requests &&
+      'cpu' in c.resources.limits && 'memory' in c.resources.limits &&
+      quantity(c.resources.requests.cpu) == quantity(c.resources.limits.cpu) &&
+      quantity(c.resources.requests.memory) == quantity(c.resources.limits.memory))
+    message: "ClickHouse containers need CPU and memory requests equal to limits (memory is never overcommitted)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: basalt-server-placement}
+spec:
+  policyName: basalt-server-placement
+  validationActions: [Deny]
+  paramRef: {name: placement-params, namespace: basalt-system, parameterNotFoundAction: Deny}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: basalt-workload-identity}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - {apiGroups: [""], apiVersions: [v1], operations: [CREATE], resources: [pods]}
+  variables:
+  - {name: labels, expression: "has(object.metadata.labels) ? object.metadata.labels : {}"}
+  - {name: component, expression: "'basalt.io/component' in variables.labels ? variables.labels['basalt.io/component'] : ''"}
+  - {name: user, expression: "request.userInfo.username"}
+  validations:
+  # label integrity: a pod cannot escape the placement policy by being created outside the
+  # operator → StatefulSet path (pods are created by the StatefulSet controller, not the operator)
+  - expression: >-
+      !(variables.component in ['clickhouse-server', 'keeper']) ||
+      (variables.user == 'system:serviceaccount:kube-system:statefulset-controller' &&
+      has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o, o.kind == 'StatefulSet'))
+    message: "ClickHouse and Keeper pods may only be created by the StatefulSet controller for an operator-managed StatefulSet"
+  # spec.nodeName binds a pod to a node without the scheduler, which skips taints: only the
+  # kubelet (static pods) and the volume provisioner's helper pods may do that
+  - expression: >-
+      !has(object.spec.nodeName) || object.spec.nodeName == '' || variables.user.startsWith('system:node:') ||
+      variables.user == 'system:serviceaccount:local-path-storage:local-path-provisioner-service-account'
+    message: "pods may not set spec.nodeName (it bypasses node taints); let the scheduler place them"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: basalt-workload-identity}
+spec:
+  policyName: basalt-workload-identity
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: basalt-statefulset-owner}
+spec:
+  failurePolicy: Fail
+  paramKind: {apiVersion: v1, kind: ConfigMap}
+  matchConstraints:
+    resourceRules:
+    - {apiGroups: [apps], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [statefulsets]}
+  variables:
+  - name: tlabels
+    expression: "has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) ? object.spec.template.metadata.labels : {}"
+  validations:
+  - expression: >-
+      !('basalt.io/component' in variables.tlabels && variables.tlabels['basalt.io/component'] in ['clickhouse-server', 'keeper']) ||
+      request.userInfo.username == params.data.operatorUser
+    message: "ClickHouse and Keeper StatefulSets are managed by the operator only"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: basalt-statefulset-owner}
+spec:
+  policyName: basalt-statefulset-owner
+  validationActions: [Deny]
+  paramRef: {name: placement-params, namespace: basalt-system, parameterNotFoundAction: Deny}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: basalt-toleration-fence}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - {apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [pods]}
+  variables:
+  - {name: labels, expression: "has(object.metadata.labels) ? object.metadata.labels : {}"}
+  - {name: component, expression: "'basalt.io/component' in variables.labels ? variables.labels['basalt.io/component'] : ''"}
+  - {name: tols, expression: "has(object.spec.tolerations) ? object.spec.tolerations : []"}
+  - {name: daemonset, expression: "has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o, o.kind == 'DaemonSet')"}
+  - {name: all, expression: "variables.tols.exists(t, t.operator == 'Exists' && (!has(t.key) || t.key == ''))"}
+  - name: platform
+    expression: "namespaceObject.metadata.name in ['kube-system', 'basalt-system', 'envoy-gateway-system', 'local-path-storage']"
+  # node-level infrastructure that must reach every node: DaemonSets, and (local cells) the
+  # local-path provisioner's short-lived volume helper pods, which tolerate all taints
+  - name: infra
+    expression: >-
+      variables.daemonset ||
+      (namespaceObject.metadata.name == 'local-path-storage' &&
+      request.userInfo.username == 'system:serviceaccount:local-path-storage:local-path-provisioner-service-account')
+  - name: poolValue
+    expression: >-
+      variables.tols.filter(t, has(t.key) && t.key == 'basalt.io/pool').map(t,
+      t.operator == 'Exists' ? '*' : (has(t.value) ? t.value : ''))
+  validations:
+  - expression: "!variables.all || variables.infra"
+    message: "only node-level infrastructure (DaemonSets) may tolerate every taint"
+  - expression: >-
+      !variables.tols.exists(t, has(t.key) && t.key == 'basalt.io/dedicated-cluster') ||
+      variables.infra || variables.component == 'clickhouse-server'
+    message: "only that cluster's ClickHouse servers (and node DaemonSets) may run on dedicated nodes"
+  - expression: >-
+      !variables.poolValue.exists(v, v in ['shared', 'free', '*']) || variables.infra || variables.component == 'clickhouse-server'
+    message: "only shared-tier ClickHouse servers (and node DaemonSets) may run on the shared or free pools"
+  - expression: >-
+      !variables.poolValue.exists(v, v == 'control') || variables.infra || variables.platform || variables.component == 'keeper'
+    message: "only Keeper and platform components may run on the control pool"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: basalt-toleration-fence}
+spec:
+  policyName: basalt-toleration-fence
+  validationActions: [Deny]

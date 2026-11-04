@@ -1,0 +1,6 @@
+# Cell image: the agent and the placement auditor as static Go binaries, nothing else (no
+# shell, no package manager). The Deployment picks the binary with `command`.
+FROM scratch
+COPY bin/basalt-agent bin/basalt-audit /
+USER 65532:65532
+ENTRYPOINT ["/basalt-agent"]

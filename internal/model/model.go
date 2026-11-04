@@ -103,6 +103,9 @@ type Size struct {
 	KeeperCPURequest string `json:"-"`
 	KeeperCPULimit   string `json:"-"`
 	KeeperMemory     string `json:"-"`
+	InstanceType     string `json:"instanceType,omitempty"` // dedicated: node type; the pod gets the node minus system reservation
+	MaxShards        int    `json:"maxShards,omitempty"`
+	MaxReplicas      int    `json:"maxReplicas,omitempty"`
 }
 
 const gib = int64(1) << 30
@@ -122,6 +125,16 @@ var Sizes = map[string]Size{
 	"s-4": {Name: "s-4", Tier: TierShared, CPU: "4", MilliCPU: 4000, Memory: "16Gi", MemoryBytes: 16 * gib,
 		Replicas: 2, MaxThreads: 6, MaxConcurrent: 100, DefaultStorage: 200, MaxStorage: 2000, HA: true,
 		KeeperReplicas: 3, KeeperCPURequest: "250m", KeeperCPULimit: "500m", KeeperMemory: "1Gi"},
+	// Dedicated sizes: one server pod per node. dt-1 is the kind stand-in for a node type.
+	"dt-1": {Name: "dt-1", Tier: TierDedicated, CPU: "1", MilliCPU: 1000, Memory: "2Gi", MemoryBytes: 2 * gib,
+		Replicas: 2, MaxThreads: 2, MaxConcurrent: 50, DefaultStorage: 5, MaxStorage: 20, HA: true, LocalOnly: true,
+		KeeperReplicas: 3, KeeperCPURequest: "100m", KeeperCPULimit: "500m", KeeperMemory: "256Mi",
+		InstanceType: "kind", MaxShards: 3, MaxReplicas: 3},
+	// m7g.4xlarge: 16 vCPU / 64 GiB, minus kubelet, DaemonSets and 5% headroom (design §7.2)
+	"d-m7g-4xl": {Name: "d-m7g-4xl", Tier: TierDedicated, CPU: "14", MilliCPU: 14000, Memory: "56Gi", MemoryBytes: 56 * gib,
+		Replicas: 2, MaxThreads: 14, MaxConcurrent: 300, DefaultStorage: 500, MaxStorage: 16000, HA: true,
+		KeeperReplicas: 3, KeeperCPURequest: "250m", KeeperCPULimit: "500m", KeeperMemory: "1Gi",
+		InstanceType: "m7g.4xlarge", MaxShards: 16, MaxReplicas: 5},
 	"s-8": {Name: "s-8", Tier: TierShared, CPU: "8", MilliCPU: 8000, Memory: "32Gi", MemoryBytes: 32 * gib,
 		Replicas: 2, MaxThreads: 12, MaxConcurrent: 150, DefaultStorage: 500, MaxStorage: 4000, HA: true,
 		KeeperReplicas: 3, KeeperCPURequest: "250m", KeeperCPULimit: "500m", KeeperMemory: "1Gi"},
@@ -135,6 +148,8 @@ type Cell struct {
 	Profile string `json:"profile"` // "local" (kind) or "cloud"
 	Domain  string `json:"domain"`
 	CAPEM   string `json:"caPem,omitempty"`
+	// Sandbox is the RuntimeClass shared-tier servers must use ("" = none; ADR-0003).
+	Sandbox string `json:"sandbox,omitempty"`
 }
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

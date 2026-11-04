@@ -49,7 +49,7 @@ func run(log *slog.Logger) error {
 	if err := st.Migrate(ctx); err != nil {
 		return err
 	}
-	if err := st.EnsureCell(ctx, cfg.Cell, cfg.MaxClusters, cfg.CellTokenSHA256(), []store.CellCapacity{cfg.CellCapacity}); err != nil {
+	if err := st.EnsureCell(ctx, cfg.Cell, cfg.MaxClusters, cfg.CellTokenSHA256(), cfg.CellCapacity); err != nil {
 		return err
 	}
 	sec, err := secrets.NewFileStore(cfg.SecretsDir)

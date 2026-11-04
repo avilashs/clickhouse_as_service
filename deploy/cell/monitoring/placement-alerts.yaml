@@ -1,0 +1,18 @@
+# Prometheus alerting rules for placement (load into the cell's Prometheus; on clusters with the
+# Prometheus Operator wrap them in a PrometheusRule). Runbook: docs/runbooks/placement-violation.md
+groups:
+- name: basalt-placement
+  rules:
+  - alert: BasaltPlacementViolation
+    expr: max by (rule, cluster) (basalt_placement_violations) > 0
+    for: 2m
+    labels: {severity: page}
+    annotations:
+      summary: "Placement rule {{ $labels.rule }} violated for cluster {{ $labels.cluster }}"
+      runbook: docs/runbooks/placement-violation.md
+  - alert: BasaltPlacementAuditStale
+    expr: time() - basalt_placement_audit_last_success_timestamp_seconds > 300
+    for: 5m
+    labels: {severity: ticket}
+    annotations:
+      summary: "The placement audit has not completed a check for 5 minutes"

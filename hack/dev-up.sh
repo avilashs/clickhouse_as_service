@@ -47,12 +47,13 @@ hack/restart.sh api worker
 # Cell agent: image, token secret, deployment. The agent reaches the host-side control plane
 # through the kind network gateway (outbound from the cell, as in production).
 GW=$(docker network inspect kind -f '{{(index .IPAM.Config 0).Gateway}}')
-docker build -q -f Dockerfile.agent -t basalt-agent:dev . >/dev/null
-hack/kind-load.sh --pool control basalt-agent:dev
+docker build -q -f Dockerfile.cell -t basalt-cell:dev . >/dev/null
+hack/kind-load.sh --pool control basalt-cell:dev
 kubectl -n basalt-system create secret generic basalt-agent \
   --from-literal=token="$BASALT_CELL_AGENT_TOKEN" --from-literal=controlPlaneUrl="http://$GW:8080" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl apply -f deploy/cell/agent/agent.yaml >/dev/null
-kubectl -n basalt-system rollout restart deploy/basalt-agent >/dev/null
+kubectl apply -f deploy/cell/agent/agent.yaml -f deploy/cell/audit/audit.yaml >/dev/null
+kubectl -n basalt-system rollout restart deploy/basalt-agent deploy/basalt-audit >/dev/null
 kubectl -n basalt-system rollout status deploy/basalt-agent --timeout=120s
+kubectl -n basalt-system rollout status deploy/basalt-audit --timeout=120s
 echo "control plane: http://127.0.0.1:8080   tenant token: source $ENVF; echo \$BASALT_TENANT_TOKEN"

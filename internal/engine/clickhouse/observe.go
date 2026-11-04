@@ -27,6 +27,9 @@ func (Engine) Observe(d engine.Desired, generation int64, obs *engine.Observed) 
 			reasons = append(reasons, fmt.Sprintf("%s status %q", key, st))
 		}
 	}
+	if d.Expect.PoolNodes > 0 && obs.PoolNodes < d.Expect.PoolNodes {
+		reasons = append(reasons, fmt.Sprintf("node pool has %d/%d nodes", obs.PoolNodes, d.Expect.PoolNodes))
+	}
 	if obs.PodsReady < d.Expect.Pods {
 		reasons = append(reasons, fmt.Sprintf("%d/%d pods ready", obs.PodsReady, d.Expect.Pods))
 	}

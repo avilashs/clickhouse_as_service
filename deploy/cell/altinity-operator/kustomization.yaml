@@ -24,3 +24,8 @@ patches:
     apiVersion: v1
     kind: Secret
     metadata: {name: clickhouse-operator, namespace: kube-system}
+- target: {kind: Deployment, name: clickhouse-operator}
+  patch: |-
+    - op: add
+      path: /spec/template/spec/tolerations
+      value: [{key: basalt.io/pool, operator: Equal, value: control, effect: NoSchedule}]

@@ -21,7 +21,7 @@ type Config struct {
 	Tokens       map[string]string // bearer token -> project
 	Cell         model.Cell
 	CellToken    string
-	CellCapacity store.CellCapacity
+	CellCapacity []store.CellCapacity
 	MaxClusters  int
 }
 
@@ -52,14 +52,19 @@ func Load() (Config, error) {
 		Cell: model.Cell{
 			ID: env("BASALT_CELL_ID", "cell1"), Region: env("BASALT_CELL_REGION", "local"), State: "ACTIVE",
 			Profile: env("BASALT_CELL_PROFILE", "local"), Domain: env("BASALT_DOMAIN", "db.example.com"),
+			Sandbox: env("BASALT_CELL_SANDBOX", "gvisor"),
 		},
 		CellToken: os.Getenv("BASALT_CELL_AGENT_TOKEN"),
-		CellCapacity: store.CellCapacity{
+		CellCapacity: []store.CellCapacity{{
 			Pool:        "shared",
 			MilliCPU:    envInt("BASALT_CELL_SHARED_MILLICPU", 6000),
 			MemoryBytes: envInt("BASALT_CELL_SHARED_MEMORY", 12<<30),
 			Pods:        int(envInt("BASALT_CELL_SHARED_PODS", 30)),
-		},
+		}, {
+			// dedicated capacity is counted in whole nodes (Pods = nodes)
+			Pool: "dedicated", MilliCPU: 0, MemoryBytes: 0,
+			Pods: int(envInt("BASALT_CELL_DEDICATED_NODES", 3)),
+		}},
 		MaxClusters: int(envInt("BASALT_CELL_MAX_CLUSTERS", 50)),
 	}
 	for _, pair := range strings.Split(os.Getenv("BASALT_API_TOKENS"), ",") {

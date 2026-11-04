@@ -63,6 +63,7 @@ type Agent struct {
 	Dynamic         dynamic.Interface
 	Mapper          meta.RESTMapper
 	HTTP            *http.Client
+	NodePools       NodePools // nil: the cell offers no dedicated tier
 	Log             *slog.Logger
 	Interval        time.Duration
 
@@ -158,6 +159,14 @@ func (a *Agent) reconcile(ctx context.Context, e api.DesiredEntry) engine.Observ
 			log.Warn("teardown", "err", err)
 		}
 		obs.NamespaceExists = !gone
+		if gone && a.NodePools != nil {
+			// nodes go back to the cell only after the tenant's pods are gone
+			remaining, err := a.NodePools.Release(ctx, e.ClusterID)
+			if err != nil {
+				obs.Error = "node pool release: " + err.Error()
+			}
+			obs.PoolNodes = remaining
+		}
 		obs.AppliedGeneration = e.Generation
 		obs.AppliedHash = e.Hash
 		return obs
@@ -167,6 +176,20 @@ func (a *Agent) reconcile(ctx context.Context, e api.DesiredEntry) engine.Observ
 	applied := ""
 	if err == nil {
 		applied = nsObj.Annotations[annAppliedHash]
+	}
+	if len(e.Desired.NodePools) > 0 {
+		if a.NodePools == nil {
+			obs.Error = "this cell has no node-pool provider (dedicated tier unavailable)"
+			return obs
+		}
+		for _, np := range e.Desired.NodePools {
+			ready, err := a.NodePools.Ensure(ctx, e.ClusterID, np)
+			obs.PoolNodes += ready
+			if err != nil {
+				obs.Error = "node pool: " + err.Error()
+				log.Warn("node pool", "err", err)
+			}
+		}
 	}
 	if applied != e.Hash {
 		if err := a.apply(ctx, e); err != nil {

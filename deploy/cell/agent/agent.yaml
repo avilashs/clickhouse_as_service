@@ -19,6 +19,11 @@ rules:
 - apiGroups: [""]
   resources: [pods]
   verbs: [get, list, watch]
+# local cells: claim and release free nodes for dedicated clusters (cloud cells render
+# Karpenter NodePools instead)
+- apiGroups: [""]
+  resources: [nodes]
+  verbs: [get, list, watch, patch, update]
 - apiGroups: [networking.k8s.io]
   resources: [networkpolicies]
   verbs: [get, list, create, patch, update, delete]
@@ -53,13 +58,16 @@ spec:
     spec:
       serviceAccountName: basalt-agent
       nodeSelector: {basalt.io/pool: control}
+      tolerations: [{key: basalt.io/pool, operator: Equal, value: control, effect: NoSchedule}]
+      automountServiceAccountToken: true
       securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
       - name: agent
-        image: basalt-agent:dev
+        image: basalt-cell:dev
         imagePullPolicy: IfNotPresent
         env:
         - {name: BASALT_CELL_ID, value: cell1}
+        - {name: BASALT_NODE_POOLS, value: kind}
         - name: BASALT_CONTROL_PLANE_URL
           valueFrom: {secretKeyRef: {name: basalt-agent, key: controlPlaneUrl}}
         - name: BASALT_CELL_AGENT_TOKEN

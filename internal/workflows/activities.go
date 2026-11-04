@@ -165,7 +165,8 @@ func (a *Activities) health(ctx context.Context, in WaitInput) (engine.Health, e
 		return engine.Health{}, err
 	}
 	if in.Want == engine.PhaseGone {
-		if obs != nil && obs.AppliedGeneration >= in.Generation && !obs.NamespaceExists {
+		// gone = namespace deleted and, for dedicated clusters, its nodes returned to the cell
+		if obs != nil && obs.AppliedGeneration >= in.Generation && !obs.NamespaceExists && obs.PoolNodes == 0 {
 			return engine.Health{Phase: engine.PhaseGone}, nil
 		}
 		return engine.Health{Phase: engine.PhaseProgressing, Reasons: []string{"waiting for the agent to delete the namespace"}}, nil

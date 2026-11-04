@@ -13,17 +13,29 @@ CONTROL_IMAGES=(
 )
 SHARED_IMAGES=(clickhouse/clickhouse-server:$CH_VERSION)
 
+# 10 kind nodes need more inotify instances than the usual default of 128 (kubelet fails to
+# start cAdvisor with "too many open files")
+if [ "$(sysctl -n fs.inotify.max_user_instances)" -lt 1024 ]; then
+  sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576 >/dev/null
+fi
+[ -x /var/lib/basalt/gvisor/runsc ] || hack/build-gvisor.sh
+[ -f /var/lib/basalt/gvisor/runsc.toml ] || cp deploy/kind/runsc.toml /var/lib/basalt/gvisor/runsc.toml
+
 if ! kind get clusters | grep -qx "$CLUSTER"; then
   docker image inspect kindest/node:v1.33.1 >/dev/null 2>&1 || docker pull kindest/node:v1.33.1
   kind create cluster --name "$CLUSTER" --config deploy/kind/cell-kind.yaml --image kindest/node:v1.33.1 --wait 240s
 fi
 kubectl config use-context "kind-$CLUSTER" >/dev/null
 
-# Pool taints: shared nodes only accept shared-tier ClickHouse pods (design §8.1).
-# The control pool stays untainted until M2 adds tolerations to every platform component.
-for n in $(kubectl get nodes -l basalt.io/pool=shared -o name); do
-  kubectl taint node "${n#node/}" basalt.io/pool=shared:NoSchedule --overwrite >/dev/null
+# Pool taints (design §8.1): every pool is tainted, so nothing lands anywhere by accident.
+# Free nodes keep their taint until a dedicated cluster claims them (taint is then replaced by
+# basalt.io/dedicated-cluster=<id>).
+for pool in control shared free; do
+  for n in $(kubectl get nodes -l basalt.io/pool=$pool -o name); do
+    kubectl taint node "${n#node/}" basalt.io/pool=$pool:NoSchedule --overwrite >/dev/null
+  done
 done
+kubectl apply -f deploy/cell/runtimeclass.yaml >/dev/null
 
 for i in "${CONTROL_IMAGES[@]}" "${SHARED_IMAGES[@]}"; do
   docker image inspect "$i" >/dev/null 2>&1 || docker pull -q "$i" >/dev/null
@@ -31,6 +43,7 @@ done
 # Each pool gets only the images it runs (a full copy per node costs several GB).
 KIND_CLUSTER=$CLUSTER hack/kind-load.sh --pool control "${CONTROL_IMAGES[@]}"
 KIND_CLUSTER=$CLUSTER hack/kind-load.sh --pool shared "${SHARED_IMAGES[@]}"
+KIND_CLUSTER=$CLUSTER hack/kind-load.sh --pool free "${SHARED_IMAGES[@]}"   # dedicated servers
 
 # operator credentials: random per cell, created once (never the bundle's public default)
 if ! kubectl -n kube-system get secret clickhouse-operator >/dev/null 2>&1 || \
@@ -49,4 +62,6 @@ helm upgrade --install eg "$EG_CHART" -n envoy-gateway-system --create-namespace
 kubectl create namespace basalt-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl apply -f deploy/cell/envoy-gateway/gateway.yaml >/dev/null
 kubectl -n basalt-system wait gateway/shared --for=condition=Programmed --timeout=180s
+# placement admission (design §8.3); applied last so the platform components above are in place
+kubectl apply -f deploy/cell/policies/placement.yaml >/dev/null
 echo "cell $CLUSTER ready"

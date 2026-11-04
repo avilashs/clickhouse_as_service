@@ -26,6 +26,19 @@ type CertRequest struct {
 	DNSNames   []string `json:"dnsNames"`
 }
 
+// NodePoolRequest asks the cell for nodes owned by one cluster (dedicated tier, design
+// §8.2 R2). Cloud cells turn it into a Karpenter NodePool; local cells claim free kind
+// nodes. Every node gets Labels and exactly one NoSchedule taint TaintKey=TaintValue.
+type NodePoolRequest struct {
+	Name         string            `json:"name"`
+	Nodes        int               `json:"nodes"` // = server pods (surge is added by rotations)
+	Zones        int               `json:"zones"` // spread nodes over this many zones
+	InstanceType string            `json:"instanceType"`
+	Labels       map[string]string `json:"labels"`
+	TaintKey     string            `json:"taintKey"`
+	TaintValue   string            `json:"taintValue"`
+}
+
 // SQLTarget tells the agent how to reach a cluster from inside the cell as the provider user.
 type SQLTarget struct {
 	Hosts       []string `json:"hosts"` // in-cluster DNS names, one per replica
@@ -37,13 +50,14 @@ type SQLTarget struct {
 
 // Desired is everything a cell agent needs to converge one cluster.
 type Desired struct {
-	ClusterID    string        `json:"clusterId"`
-	Namespace    string        `json:"namespace"`
-	Objects      []Object      `json:"objects"`      // applied in order with server-side apply
-	Certificates []CertRequest `json:"certificates"` // ensured before Objects that mount them
-	SQL          *SQLTarget    `json:"sql,omitempty"`
-	Bootstrap    []string      `json:"bootstrap,omitempty"` // idempotent SQL, run once per payload hash
-	Expect       Expectation   `json:"expect"`
+	ClusterID    string            `json:"clusterId"`
+	Namespace    string            `json:"namespace"`
+	Objects      []Object          `json:"objects"`             // applied in order with server-side apply
+	Certificates []CertRequest     `json:"certificates"`        // ensured before Objects that mount them
+	NodePools    []NodePoolRequest `json:"nodePools,omitempty"` // ensured before anything is scheduled
+	SQL          *SQLTarget        `json:"sql,omitempty"`
+	Bootstrap    []string          `json:"bootstrap,omitempty"` // idempotent SQL, run once per payload hash
+	Expect       Expectation       `json:"expect"`
 }
 
 // Expectation is what Observe checks against.
@@ -51,6 +65,7 @@ type Expectation struct {
 	Pods        int `json:"pods"`
 	ServerHosts int `json:"serverHosts"` // hosts each replica must see in system.clusters
 	KeeperNodes int `json:"keeperNodes"`
+	PoolNodes   int `json:"poolNodes,omitempty"` // dedicated: ready nodes in the cluster's pool
 }
 
 // Hash is a stable digest of the desired payload; unchanged hash = nothing to publish.
@@ -83,6 +98,7 @@ type Observed struct {
 	PodsTotal         int               `json:"podsTotal"`
 	BootstrapHash     string            `json:"bootstrapHash"` // payload hash whose bootstrap SQL succeeded
 	Probes            []HostProbe       `json:"probes"`
+	PoolNodes         int               `json:"poolNodes"` // nodes currently in the cluster's node pool
 	Error             string            `json:"error,omitempty"`
 	ObservedAt        time.Time         `json:"observedAt"`
 }

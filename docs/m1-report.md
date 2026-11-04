@@ -6,7 +6,7 @@ Date: 2026-11-04. Environment: one kind cell (Kubernetes 1.33.1; 1 control-plane
 
 ## Results
 
-**All M1 acceptance criteria pass.** `test/e2e/m1.sh` run 2: **32/32 checks passed** ([log](evidence/m1-e2e-run2.log)). Unit and integration tests: `go test ./...` passes (engine golden and invariant tests, secret store, store integration against PostgreSQL 16, and workflow tests in Temporal's test environment with the real store).
+**All M1 acceptance criteria pass.** `test/e2e/m1.sh` run 2: **31/31 checks passed** (corrected from "32/32", which was a counting error; the log has 31 checks) ([log](evidence/m1-e2e-run2.log)). Unit and integration tests: `go test ./...` passes (engine golden and invariant tests, secret store, store integration against PostgreSQL 16, and workflow tests in Temporal's test environment with the real store).
 
 | Acceptance criterion | Evidence |
 |---|---|
@@ -33,7 +33,7 @@ Workflow tests (`internal/workflows`):
 
 This is the control-plane / data-plane split of design §3 working as intended. A real cell would have kept the cluster running instead of needing a rebuild.
 
-Run 1 of the suite had 30/31 passing. The failure was in the test itself: it read both replicas with `clusterAllReplicas()`, which the tenant is correctly denied (`READ ON REMOTE`; see limitation 7). Run 2 checks replication through `system.replicas`. Between the runs I also fixed two things: cell bring-up now replaces the operator bundle's public default password with a random one, and the API's 202 response now carries stored timestamps.
+Run 1 of the suite had 29/30 passing. The failure was in the test itself: it read both replicas with `clusterAllReplicas()`, which the tenant is correctly denied (`READ ON REMOTE`; see limitation 7). Run 2 checks replication through `system.replicas`. Between the runs I also fixed two things: cell bring-up now replaces the operator bundle's public default password with a random one, and the API's 202 response now carries stored timestamps.
 
 
 ## What was built

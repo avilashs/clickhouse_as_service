@@ -45,23 +45,34 @@ type Server struct {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok\n")) })
-	mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, _ *http.Request) {
+	s.register(func(pattern string, h http.HandlerFunc) { mux.HandleFunc(pattern, h) })
+	return logRequests(s.Log, mux)
+}
+
+// Routes lists every registered "METHOD /path" pattern (the OpenAPI contract test uses it).
+func (s *Server) Routes() []string {
+	var out []string
+	s.register(func(pattern string, _ http.HandlerFunc) { out = append(out, pattern) })
+	return out
+}
+
+func (s *Server) register(handle func(pattern string, h http.HandlerFunc)) {
+	handle("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok\n")) })
+	handle("GET /openapi.yaml", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
 		w.Write(s.OpenAPI)
 	})
-	mux.HandleFunc("GET /v1/sizes", s.listSizes)
-	mux.HandleFunc("GET /v1/versions", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]any{"channels": Versions}) })
-	mux.HandleFunc("POST /v1/projects/{project}/clusters", s.tenant(s.createCluster))
-	mux.HandleFunc("GET /v1/projects/{project}/clusters", s.tenant(s.listClusters))
-	mux.HandleFunc("GET /v1/projects/{project}/clusters/{cluster}", s.tenant(s.getCluster))
-	mux.HandleFunc("DELETE /v1/projects/{project}/clusters/{cluster}", s.tenant(s.deleteCluster))
-	mux.HandleFunc("GET /v1/projects/{project}/clusters/{cluster}/initialCredentials", s.tenant(s.initialCredentials))
-	mux.HandleFunc("GET /v1/projects/{project}/operations/{operation}", s.tenant(s.getOperation))
+	handle("GET /v1/sizes", s.listSizes)
+	handle("GET /v1/versions", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]any{"channels": Versions}) })
+	handle("POST /v1/projects/{project}/clusters", s.tenant(s.createCluster))
+	handle("GET /v1/projects/{project}/clusters", s.tenant(s.listClusters))
+	handle("GET /v1/projects/{project}/clusters/{cluster}", s.tenant(s.getCluster))
+	handle("DELETE /v1/projects/{project}/clusters/{cluster}", s.tenant(s.deleteCluster))
+	handle("GET /v1/projects/{project}/clusters/{cluster}/initialCredentials", s.tenant(s.initialCredentials))
+	handle("GET /v1/projects/{project}/operations/{operation}", s.tenant(s.getOperation))
 	// cell agent API (outbound from the cell; bearer token per cell, mTLS in the cloud)
-	mux.HandleFunc("GET /v1/cells/{cell}/desired", s.agent(s.getDesired))
-	mux.HandleFunc("POST /v1/cells/{cell}/observed", s.agent(s.postObserved))
-	return logRequests(s.Log, mux)
+	handle("GET /v1/cells/{cell}/desired", s.agent(s.getDesired))
+	handle("POST /v1/cells/{cell}/observed", s.agent(s.postObserved))
 }
 
 // ---------------------------------------------------------------- errors and helpers
@@ -185,6 +196,9 @@ type CreateClusterRequest struct {
 	Tier       string `json:"tier,omitempty"`
 	StorageGiB int    `json:"storageGiB,omitempty"`
 	Version    string `json:"version,omitempty"`
+	// dedicated tier only: shards and replicas are chosen by the tenant
+	Shards           int `json:"shards,omitempty"`
+	ReplicasPerShard int `json:"replicasPerShard,omitempty"`
 }
 
 var nameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{1,38}[a-z0-9]$`)
@@ -207,12 +221,23 @@ func (s *Server) createCluster(w http.ResponseWriter, r *http.Request, project s
 	}
 	if req.Tier == "" {
 		req.Tier = string(model.TierShared)
+		if size, ok := model.Sizes[req.Size]; ok {
+			req.Tier = string(size.Tier)
+		}
 	}
 	if req.Version == "" {
 		req.Version = DefaultServerVersion
 	}
-	if size, ok := model.Sizes[req.Size]; ok && req.StorageGiB == 0 {
-		req.StorageGiB = size.DefaultStorage
+	if size, ok := model.Sizes[req.Size]; ok {
+		if req.StorageGiB == 0 {
+			req.StorageGiB = size.DefaultStorage
+		}
+		if req.Shards == 0 {
+			req.Shards = 1
+		}
+		if req.ReplicasPerShard == 0 {
+			req.ReplicasPerShard = size.Replicas
+		}
 	}
 	hash := requestHash(r.Method, r.URL.Path, req)
 
@@ -222,8 +247,8 @@ func (s *Server) createCluster(w http.ResponseWriter, r *http.Request, project s
 		return
 	}
 	spec := model.ClusterSpec{
-		Version: 1, Engine: "clickhouse", Tier: model.Tier(req.Tier), Size: req.Size, Shards: 1,
-		ReplicasPerShard: model.Sizes[req.Size].Replicas, StorageGiB: req.StorageGiB, ServerVersion: req.Version,
+		Version: 1, Engine: "clickhouse", Tier: model.Tier(req.Tier), Size: req.Size, Shards: req.Shards,
+		ReplicasPerShard: req.ReplicasPerShard, StorageGiB: req.StorageGiB, ServerVersion: req.Version,
 	}
 	if !versionOffered(req.Version) {
 		writeJSON(w, 400, apiError{Code: "INVALID", Message: "invalid request", Fields: []engine.FieldError{{Field: "version", Message: fmt.Sprintf("not offered; see GET /v1/versions")}}})

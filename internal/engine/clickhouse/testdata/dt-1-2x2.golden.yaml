@@ -1,0 +1,634 @@
+bootstrap:
+- CREATE ROLE IF NOT EXISTS customer_admin
+- GRANT SELECT, INSERT, ALTER, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE
+  DICTIONARY, CREATE FUNCTION, DROP DATABASE, DROP TABLE, DROP VIEW, DROP DICTIONARY,
+  DROP FUNCTION, TRUNCATE, OPTIMIZE, SHOW, KILL QUERY, dictGet ON *.* TO customer_admin
+  WITH GRANT OPTION
+- REVOKE SELECT ON system.zookeeper FROM customer_admin
+- REVOKE SELECT ON system.zookeeper_connection FROM customer_admin
+- REVOKE SELECT ON system.zookeeper_log FROM customer_admin
+- REVOKE ALL ON _basalt.* FROM customer_admin
+- GRANT CLUSTER ON *.* TO customer_admin
+- GRANT TABLE ENGINE ON ReplicatedMergeTree, TABLE ENGINE ON ReplicatedReplacingMergeTree,
+  TABLE ENGINE ON ReplicatedAggregatingMergeTree, TABLE ENGINE ON ReplicatedSummingMergeTree,
+  TABLE ENGINE ON ReplicatedCollapsingMergeTree, TABLE ENGINE ON ReplicatedVersionedCollapsingMergeTree,
+  TABLE ENGINE ON Distributed, TABLE ENGINE ON MaterializedView, TABLE ENGINE ON View,
+  TABLE ENGINE ON Null, TABLE ENGINE ON Memory, TABLE ENGINE ON Set, TABLE ENGINE
+  ON Join, TABLE ENGINE ON Buffer, TABLE ENGINE ON Dictionary, TABLE ENGINE ON Merge
+  TO customer_admin WITH GRANT OPTION
+- GRANT CREATE USER, ALTER USER, DROP USER, CREATE ROLE, ALTER ROLE, DROP ROLE, CREATE
+  ROW POLICY, ALTER ROW POLICY, DROP ROW POLICY, CREATE QUOTA, ALTER QUOTA, DROP QUOTA,
+  SHOW ACCESS ON *.* TO customer_admin
+- GRANT SYSTEM FLUSH LOGS, SYSTEM SYNC REPLICA, SYSTEM DROP QUERY CACHE, SYSTEM MERGES,
+  SYSTEM TTL MERGES, SYSTEM MOVES, SYSTEM FETCHES, SYSTEM RESTART REPLICA ON *.* TO
+  customer_admin
+- CREATE USER IF NOT EXISTS admin IDENTIFIED WITH sha256_hash BY '{{secret:clusters/cded1234abcd/admin|sha256}}'
+- GRANT customer_admin TO admin
+- ALTER USER admin DEFAULT ROLE customer_admin
+certificates:
+- dnsNames:
+  - cded1234abcd.cell1.db.example.com
+  - chi-cded1234abcd-default-0-0
+  - chi-cded1234abcd-default-0-0.ch-cded1234abcd
+  - chi-cded1234abcd-default-0-0.ch-cded1234abcd.svc
+  - chi-cded1234abcd-default-0-0.ch-cded1234abcd.svc.cluster.local
+  - chi-cded1234abcd-default-0-1
+  - chi-cded1234abcd-default-0-1.ch-cded1234abcd
+  - chi-cded1234abcd-default-0-1.ch-cded1234abcd.svc
+  - chi-cded1234abcd-default-0-1.ch-cded1234abcd.svc.cluster.local
+  - chi-cded1234abcd-default-1-0
+  - chi-cded1234abcd-default-1-0.ch-cded1234abcd
+  - chi-cded1234abcd-default-1-0.ch-cded1234abcd.svc
+  - chi-cded1234abcd-default-1-0.ch-cded1234abcd.svc.cluster.local
+  - chi-cded1234abcd-default-1-1
+  - chi-cded1234abcd-default-1-1.ch-cded1234abcd
+  - chi-cded1234abcd-default-1-1.ch-cded1234abcd.svc
+  - chi-cded1234abcd-default-1-1.ch-cded1234abcd.svc.cluster.local
+  - chk-cded1234abcd-keeper-0-0
+  - chk-cded1234abcd-keeper-0-0.ch-cded1234abcd
+  - chk-cded1234abcd-keeper-0-0.ch-cded1234abcd.svc
+  - chk-cded1234abcd-keeper-0-0.ch-cded1234abcd.svc.cluster.local
+  - chk-cded1234abcd-keeper-0-1
+  - chk-cded1234abcd-keeper-0-1.ch-cded1234abcd
+  - chk-cded1234abcd-keeper-0-1.ch-cded1234abcd.svc
+  - chk-cded1234abcd-keeper-0-1.ch-cded1234abcd.svc.cluster.local
+  - chk-cded1234abcd-keeper-0-2
+  - chk-cded1234abcd-keeper-0-2.ch-cded1234abcd
+  - chk-cded1234abcd-keeper-0-2.ch-cded1234abcd.svc
+  - chk-cded1234abcd-keeper-0-2.ch-cded1234abcd.svc.cluster.local
+  - clickhouse-cded1234abcd
+  - clickhouse-cded1234abcd.ch-cded1234abcd
+  - clickhouse-cded1234abcd.ch-cded1234abcd.svc
+  - clickhouse-cded1234abcd.ch-cded1234abcd.svc.cluster.local
+  - keeper-cded1234abcd
+  - keeper-cded1234abcd.ch-cded1234abcd
+  - keeper-cded1234abcd.ch-cded1234abcd.svc
+  - keeper-cded1234abcd.ch-cded1234abcd.svc.cluster.local
+  namespace: ch-cded1234abcd
+  secretName: ch-certs
+clusterId: cded1234abcd
+expect:
+  keeperNodes: 3
+  pods: 7
+  poolNodes: 4
+  serverHosts: 4
+namespace: ch-cded1234abcd
+nodePools:
+- instanceType: kind
+  labels:
+    basalt.io/dedicated-cluster: cded1234abcd
+    basalt.io/pool: dedicated
+  name: dedicated-cded1234abcd
+  nodes: 4
+  taintKey: basalt.io/dedicated-cluster
+  taintValue: cded1234abcd
+  zones: 3
+objects:
+- apiVersion: v1
+  kind: Namespace
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/managed: "true"
+      basalt.io/project: p1
+      basalt.io/tier: dedicated
+      pod-security.kubernetes.io/enforce: restricted
+    name: ch-cded1234abcd
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/component: credentials
+    name: ch-users
+    namespace: ch-cded1234abcd
+  stringData:
+    default_sha256: '{{secret:clusters/cded1234abcd/default|sha256}}'
+    provider_ops_sha256: '{{secret:clusters/cded1234abcd/provider_ops|sha256}}'
+  type: Opaque
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/component: network
+    name: default-deny
+    namespace: ch-cded1234abcd
+  spec:
+    podSelector: {}
+    policyTypes:
+    - Ingress
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/component: network
+    name: allow-dns
+    namespace: ch-cded1234abcd
+  spec:
+    egress:
+    - ports:
+      - port: 53
+        protocol: UDP
+      - port: 53
+        protocol: TCP
+      to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            k8s-app: kube-dns
+    podSelector: {}
+    policyTypes:
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/component: network
+    name: server
+    namespace: ch-cded1234abcd
+  spec:
+    egress:
+    - ports:
+      - port: 2281
+        protocol: TCP
+      to:
+      - podSelector:
+          matchLabels:
+            clickhouse-keeper.altinity.com/chk: cded1234abcd
+    - ports:
+      - port: 9440
+        protocol: TCP
+      - port: 8443
+        protocol: TCP
+      - port: 9010
+        protocol: TCP
+      to:
+      - podSelector:
+          matchLabels:
+            clickhouse.altinity.com/chi: cded1234abcd
+    ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: envoy-gateway-system
+      ports:
+      - port: 9440
+        protocol: TCP
+      - port: 8443
+        protocol: TCP
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: basalt-system
+      ports:
+      - port: 9440
+        protocol: TCP
+      - port: 8443
+        protocol: TCP
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+      ports:
+      - port: 9440
+        protocol: TCP
+      - port: 8443
+        protocol: TCP
+    - from:
+      - podSelector:
+          matchLabels:
+            clickhouse.altinity.com/chi: cded1234abcd
+      ports:
+      - port: 9440
+        protocol: TCP
+      - port: 8443
+        protocol: TCP
+      - port: 9010
+        protocol: TCP
+    podSelector:
+      matchLabels:
+        clickhouse.altinity.com/chi: cded1234abcd
+    policyTypes:
+    - Ingress
+    - Egress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/component: network
+    name: keeper
+    namespace: ch-cded1234abcd
+  spec:
+    egress:
+    - ports:
+      - port: 2281
+        protocol: TCP
+      - port: 9444
+        protocol: TCP
+      to:
+      - podSelector:
+          matchLabels:
+            clickhouse-keeper.altinity.com/chk: cded1234abcd
+    ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            clickhouse.altinity.com/chi: cded1234abcd
+      ports:
+      - port: 2281
+        protocol: TCP
+    - from:
+      - podSelector:
+          matchLabels:
+            clickhouse-keeper.altinity.com/chk: cded1234abcd
+      ports:
+      - port: 2281
+        protocol: TCP
+      - port: 9444
+        protocol: TCP
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+      ports:
+      - port: 2281
+        protocol: TCP
+      - port: 9182
+        protocol: TCP
+    podSelector:
+      matchLabels:
+        clickhouse-keeper.altinity.com/chk: cded1234abcd
+    policyTypes:
+    - Ingress
+    - Egress
+- apiVersion: clickhouse-keeper.altinity.com/v1
+  kind: ClickHouseKeeperInstallation
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/component: keeper
+    name: cded1234abcd
+    namespace: ch-cded1234abcd
+  spec:
+    configuration:
+      clusters:
+      - insecure: "no"
+        layout:
+          replicasCount: 3
+        name: keeper
+        secure: "yes"
+      files:
+        basalt-openssl.xml: |
+          <clickhouse>
+            <openSSL>
+              <server>
+                <certificateFile>/etc/basalt/certs/server.crt</certificateFile>
+                <privateKeyFile>/etc/basalt/certs/server.key</privateKeyFile>
+                <caConfig>/etc/basalt/certs/ca.crt</caConfig>
+                <verificationMode>none</verificationMode>
+                <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+              </server>
+              <client>
+                <caConfig>/etc/basalt/certs/ca.crt</caConfig>
+                <loadDefaultCAFile>false</loadDefaultCAFile>
+                <verificationMode>strict</verificationMode>
+                <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+              </client>
+            </openSSL>
+          </clickhouse>
+      settings:
+        keeper_server/four_letter_word_white_list: ruok,mntr,srvr,stat,conf,isro
+        listen_host: 0.0.0.0
+        logger/level: information
+    defaults:
+      templates:
+        dataVolumeClaimTemplate: keeper-data
+        podTemplate: keeper
+    templates:
+      podTemplates:
+      - metadata:
+          labels:
+            basalt.io/cluster: cded1234abcd
+            basalt.io/component: keeper
+        name: keeper
+        spec:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    clickhouse-keeper.altinity.com/chk: cded1234abcd
+                topologyKey: kubernetes.io/hostname
+          automountServiceAccountToken: false
+          containers:
+          - image: clickhouse/clickhouse-keeper:26.8.34.13
+            imagePullPolicy: IfNotPresent
+            name: clickhouse-keeper
+            resources:
+              limits:
+                cpu: 500m
+                memory: 256Mi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - mountPath: /etc/basalt/certs
+              name: certs
+              readOnly: true
+          nodeSelector:
+            basalt.io/pool: control
+          securityContext:
+            fsGroup: 101
+            runAsGroup: 101
+            runAsNonRoot: true
+            runAsUser: 101
+            seccompProfile:
+              type: RuntimeDefault
+          tolerations:
+          - effect: NoSchedule
+            key: basalt.io/pool
+            operator: Equal
+            value: control
+          topologySpreadConstraints:
+          - labelSelector:
+              matchLabels:
+                clickhouse-keeper.altinity.com/chk: cded1234abcd
+            maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
+          volumes:
+          - name: certs
+            secret:
+              defaultMode: 288
+              secretName: ch-certs
+      volumeClaimTemplates:
+      - name: keeper-data
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+- apiVersion: clickhouse.altinity.com/v1
+  kind: ClickHouseInstallation
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/component: clickhouse
+    name: cded1234abcd
+    namespace: ch-cded1234abcd
+  spec:
+    configuration:
+      clusters:
+      - insecure: "no"
+        layout:
+          replicasCount: 2
+          shardsCount: 2
+        name: default
+        secure: "yes"
+      files:
+        basalt-access.xml: |
+          <clickhouse>
+            <user_directories replace="replace">
+              <users_xml><path>users.xml</path></users_xml>
+              <replicated><zookeeper_path>/clickhouse/access/</zookeeper_path></replicated>
+            </user_directories>
+          </clickhouse>
+        basalt-openssl.xml: |
+          <clickhouse>
+            <openSSL>
+              <server>
+                <certificateFile>/etc/basalt/certs/server.crt</certificateFile>
+                <privateKeyFile>/etc/basalt/certs/server.key</privateKeyFile>
+                <caConfig>/etc/basalt/certs/ca.crt</caConfig>
+                <verificationMode>none</verificationMode>
+                <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+              </server>
+              <client>
+                <caConfig>/etc/basalt/certs/ca.crt</caConfig>
+                <loadDefaultCAFile>false</loadDefaultCAFile>
+                <verificationMode>strict</verificationMode>
+                <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+              </client>
+            </openSSL>
+          </clickhouse>
+      profiles:
+        default/async_insert: 1
+        default/constraints/database_replicated_allow_only_replicated_engine/const: ""
+        default/constraints/max_concurrent_queries_for_user/max: 50
+        default/constraints/max_memory_usage/max: "1717986918"
+        default/constraints/max_memory_usage/min: 1
+        default/constraints/max_threads/max: 2
+        default/constraints/wait_for_async_insert/const: ""
+        default/database_replicated_allow_only_replicated_engine: 1
+        default/max_concurrent_queries_for_user: 50
+        default/max_memory_usage: "1717986918"
+        default/max_threads: 2
+        default/wait_for_async_insert: 1
+        provider/constraints/database_replicated_allow_only_replicated_engine/changeable_in_readonly: ""
+        provider/constraints/max_concurrent_queries_for_user/changeable_in_readonly: ""
+        provider/constraints/max_memory_usage/changeable_in_readonly: ""
+        provider/max_memory_usage: 0
+        provider/max_threads: 2
+      settings:
+        access_control_improvements/enable_read_write_grants: true
+        access_control_improvements/on_cluster_queries_require_cluster_grant: true
+        access_control_improvements/select_from_system_db_requires_grant: true
+        access_control_improvements/settings_constraints_replace_previous: true
+        access_control_improvements/table_engines_require_grant: true
+        http_port: _removed_
+        https_port: 8443
+        interserver_http_port: _removed_
+        interserver_https_port: 9010
+        listen_host: 0.0.0.0
+        max_concurrent_queries: 50
+        max_server_memory_usage: 1825361100
+        mysql_port: _removed_
+        postgresql_port: _removed_
+        tcp_port: _removed_
+        tcp_port_secure: 9440
+      users:
+        default/networks/ip:
+        - 127.0.0.1
+        - ::1
+        default/password_sha256_hex:
+          valueFrom:
+            secretKeyRef:
+              key: default_sha256
+              name: ch-users
+        default/profile: default
+        provider_ops/access_management: 1
+        provider_ops/named_collection_control: 1
+        provider_ops/networks/ip:
+        - 10.0.0.0/8
+        provider_ops/password_sha256_hex:
+          valueFrom:
+            secretKeyRef:
+              key: provider_ops_sha256
+              name: ch-users
+        provider_ops/profile: provider
+        provider_ops/quota: default
+      zookeeper:
+        nodes:
+        - host: keeper-cded1234abcd
+          port: 2281
+          secure: "yes"
+    defaults:
+      templates:
+        dataVolumeClaimTemplate: data
+        podTemplate: server
+        serviceTemplate: client
+    security:
+      clickhouse:
+        tls:
+          rootCASecretRef:
+            key: ca.crt
+            name: ch-certs
+          verify: Strict
+    templates:
+      podTemplates:
+      - metadata:
+          labels:
+            basalt.io/cluster: cded1234abcd
+            basalt.io/component: clickhouse-server
+            basalt.io/tier: dedicated
+        name: server
+        spec:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    clickhouse.altinity.com/chi: cded1234abcd
+                matchLabelKeys:
+                - clickhouse.altinity.com/shard
+                topologyKey: kubernetes.io/hostname
+              - labelSelector:
+                  matchLabels:
+                    basalt.io/component: clickhouse-server
+                namespaceSelector: {}
+                topologyKey: kubernetes.io/hostname
+          automountServiceAccountToken: false
+          containers:
+          - image: clickhouse/clickhouse-server:26.8.34.13
+            imagePullPolicy: IfNotPresent
+            name: clickhouse
+            resources:
+              limits:
+                cpu: "1"
+                memory: 2Gi
+              requests:
+                cpu: "1"
+                memory: 2Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - mountPath: /etc/basalt/certs
+              name: certs
+              readOnly: true
+          nodeSelector:
+            basalt.io/dedicated-cluster: cded1234abcd
+            basalt.io/pool: dedicated
+          securityContext:
+            fsGroup: 101
+            runAsGroup: 101
+            runAsNonRoot: true
+            runAsUser: 101
+            seccompProfile:
+              type: RuntimeDefault
+          tolerations:
+          - effect: NoSchedule
+            key: basalt.io/dedicated-cluster
+            operator: Equal
+            value: cded1234abcd
+          topologySpreadConstraints:
+          - labelSelector:
+              matchLabels:
+                clickhouse.altinity.com/chi: cded1234abcd
+            matchLabelKeys:
+            - clickhouse.altinity.com/shard
+            maxSkew: 1
+            minDomains: 3
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
+          volumes:
+          - name: certs
+            secret:
+              defaultMode: 288
+              secretName: ch-certs
+      serviceTemplates:
+      - generateName: clickhouse-{chi}
+        metadata:
+          annotations:
+            service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+            service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+            service.beta.kubernetes.io/aws-load-balancer-type: external
+        name: client
+        spec:
+          ports:
+          - name: https
+            port: 8443
+          - name: native-tls
+            port: 9440
+          type: LoadBalancer
+      volumeClaimTemplates:
+      - name: data
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+- apiVersion: policy/v1
+  kind: PodDisruptionBudget
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/component: clickhouse
+    name: clickhouse-shard-0
+    namespace: ch-cded1234abcd
+  spec:
+    maxUnavailable: 1
+    selector:
+      matchLabels:
+        clickhouse.altinity.com/chi: cded1234abcd
+        clickhouse.altinity.com/shard: "0"
+- apiVersion: policy/v1
+  kind: PodDisruptionBudget
+  metadata:
+    labels:
+      basalt.io/cluster: cded1234abcd
+      basalt.io/component: clickhouse
+    name: clickhouse-shard-1
+    namespace: ch-cded1234abcd
+  spec:
+    maxUnavailable: 1
+    selector:
+      matchLabels:
+        clickhouse.altinity.com/chi: cded1234abcd
+        clickhouse.altinity.com/shard: "1"
+sql:
+  caSecret: ch-certs
+  hosts:
+  - chi-cded1234abcd-default-0-0.ch-cded1234abcd.svc.cluster.local
+  - chi-cded1234abcd-default-0-1.ch-cded1234abcd.svc.cluster.local
+  - chi-cded1234abcd-default-1-0.ch-cded1234abcd.svc.cluster.local
+  - chi-cded1234abcd-default-1-1.ch-cded1234abcd.svc.cluster.local
+  passwordRef: '{{secret:clusters/cded1234abcd/provider_ops}}'
+  port: 9440
+  user: provider_ops

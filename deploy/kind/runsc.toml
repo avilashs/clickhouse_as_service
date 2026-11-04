@@ -1,0 +1,4 @@
+# containerd-shim-runsc-v1 configuration (local kind cells; kubelet uses the cgroupfs driver)
+binary_name = "/opt/gvisor/runsc"
+[runsc_config]
+  platform = "systrap"

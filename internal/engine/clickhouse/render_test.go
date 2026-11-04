@@ -24,31 +24,41 @@ func testInput() engine.RenderInput {
 				Shards: 1, ReplicasPerShard: 2, StorageGiB: 5, ServerVersion: "26.8.34.13"},
 			CreatedAt: time.Unix(0, 0),
 		},
-		Cell: model.Cell{ID: "cell1", Profile: "local", Domain: "db.example.com"},
+		Cell: model.Cell{ID: "cell1", Profile: "local", Domain: "db.example.com", Sandbox: "gvisor"},
 	}
 }
 
+func dedicatedInput() engine.RenderInput {
+	in := testInput()
+	in.Cluster.ID = "cded1234abcd"
+	in.Cluster.Spec.Tier, in.Cluster.Spec.Size = model.TierDedicated, "dt-1"
+	in.Cluster.Spec.Shards, in.Cluster.Spec.ReplicasPerShard = 2, 2
+	return in
+}
+
 func TestRenderGolden(t *testing.T) {
-	d, err := Engine{}.Render(testInput())
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := yaml.Marshal(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join("testdata", "t-2.golden.yaml")
-	if *update {
-		if err := os.WriteFile(path, got, 0o644); err != nil {
+	for name, in := range map[string]engine.RenderInput{"t-2": testInput(), "dt-1-2x2": dedicatedInput()} {
+		d, err := Engine{}.Render(in)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("%v (run go test ./internal/engine/clickhouse -update)", err)
-	}
-	if string(got) != string(want) {
-		t.Fatalf("render differs from %s; review the diff and run with -update if intended", path)
+		got, err := yaml.Marshal(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join("testdata", name+".golden.yaml")
+		if *update {
+			if err := os.WriteFile(path, got, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%v (run go test ./internal/engine/clickhouse -update)", err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("render differs from %s; review the diff and run with -update if intended", path)
+		}
 	}
 }
 
@@ -88,22 +98,41 @@ func dig(o any, path ...string) any {
 	return o
 }
 
-func TestServerPodInvariants(t *testing.T) {
-	d, _ := Engine{}.Render(testInput())
+func podSpec(t *testing.T, d engine.Desired) map[string]any {
+	t.Helper()
 	chi := find(t, d, "ClickHouseInstallation")
-	pt := dig(chi, "spec", "templates", "podTemplates").([]any)[0]
-	spec := dig(pt, "spec").(map[string]any)
+	return dig(dig(chi, "spec", "templates", "podTemplates").([]any)[0], "spec").(map[string]any)
+}
 
+func requiredTerms(spec map[string]any) []map[string]any {
+	var out []map[string]any
+	for _, t := range dig(spec, "affinity", "podAntiAffinity", "requiredDuringSchedulingIgnoredDuringExecution").([]any) {
+		out = append(out, t.(map[string]any))
+	}
+	return out
+}
+
+func hasShardAntiAffinity(spec map[string]any) bool {
+	for _, term := range requiredTerms(spec) {
+		keys, _ := term["matchLabelKeys"].([]any)
+		if term["topologyKey"] == "kubernetes.io/hostname" && len(keys) == 1 && keys[0] == shardLabel {
+			return true
+		}
+	}
+	return false
+}
+
+func checkCommonPodInvariants(t *testing.T, spec map[string]any) {
+	t.Helper()
 	if spec["automountServiceAccountToken"] != false {
 		t.Error("server pods must not mount a ServiceAccount token")
 	}
-	if dig(spec, "nodeSelector", "basalt.io/pool") != "shared" {
-		t.Error("shared-tier pods must select the shared pool")
+	if !hasShardAntiAffinity(spec) {
+		t.Error("R1: replicas of a shard must have required hostname anti-affinity (matchLabelKeys shard)")
 	}
-	req := dig(spec, "affinity", "podAntiAffinity", "requiredDuringSchedulingIgnoredDuringExecution").([]any)
-	term := req[0].(map[string]any)
-	if term["topologyKey"] != "kubernetes.io/hostname" || dig(term, "labelSelector", "matchLabels", "clickhouse.altinity.com/shard") != "0" {
-		t.Error("replicas of a shard must have required hostname anti-affinity")
+	ts := spec["topologySpreadConstraints"].([]any)[0].(map[string]any)
+	if ts["topologyKey"] != "topology.kubernetes.io/zone" || ts["whenUnsatisfiable"] != "DoNotSchedule" || ts["minDomains"] != 3 {
+		t.Error("R1b: required zone spread over 3 domains")
 	}
 	c := spec["containers"].([]any)[0].(map[string]any)
 	res := c["resources"].(map[string]any)
@@ -115,6 +144,92 @@ func TestServerPodInvariants(t *testing.T) {
 	}
 	if dig(spec, "securityContext", "runAsNonRoot") != true {
 		t.Error("must run as non-root")
+	}
+}
+
+func TestSharedPodInvariants(t *testing.T) {
+	d, _ := Engine{}.Render(testInput())
+	spec := podSpec(t, d)
+	checkCommonPodInvariants(t, spec)
+	if dig(spec, "nodeSelector", LabelPool) != "shared" {
+		t.Error("R3: shared-tier pods must select the shared pool")
+	}
+	if spec["runtimeClassName"] != "gvisor" {
+		t.Error("shared-tier pods must run in the cell's sandbox")
+	}
+	for _, tol := range spec["tolerations"].([]any) {
+		if tol.(map[string]any)["key"] == LabelDedicatedCluster {
+			t.Error("R3: shared pods must not tolerate dedicated taints")
+		}
+	}
+	if len(d.NodePools) != 0 {
+		t.Error("shared clusters must not request node pools")
+	}
+	settings := dig(find(t, d, "ClickHouseInstallation"), "spec", "configuration", "settings").(map[string]any)
+	if settings["skip_binary_checksum_checks"] != 1 {
+		t.Error("sandboxed servers need skip_binary_checksum_checks (gVisor patches the binary in memory)")
+	}
+}
+
+func TestDedicatedPodInvariants(t *testing.T) {
+	d, err := Engine{}.Render(dedicatedInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := podSpec(t, d)
+	checkCommonPodInvariants(t, spec)
+	if _, ok := spec["runtimeClassName"]; ok {
+		t.Error("dedicated pods run without the sandbox")
+	}
+	if dig(spec, "nodeSelector", LabelDedicatedCluster) != "cded1234abcd" || dig(spec, "nodeSelector", LabelPool) != "dedicated" {
+		t.Error("R2: dedicated pods must select their own node pool")
+	}
+	tols := spec["tolerations"].([]any)
+	if len(tols) != 1 || tols[0].(map[string]any)["key"] != LabelDedicatedCluster || tols[0].(map[string]any)["value"] != "cded1234abcd" {
+		t.Errorf("R2/R3: exactly one toleration, for the cluster's own taint: %v", tols)
+	}
+	exclusive := false
+	for _, term := range requiredTerms(spec) {
+		ns, hasNS := term["namespaceSelector"].(map[string]any)
+		if hasNS && len(ns) == 0 && dig(term, "labelSelector", "matchLabels", LabelComponent) == ComponentServer && term["topologyKey"] == "kubernetes.io/hostname" {
+			exclusive = true
+		}
+	}
+	if !exclusive {
+		t.Error("R2: required anti-affinity against all ClickHouse servers with namespaceSelector {}")
+	}
+	if len(d.NodePools) != 1 || d.NodePools[0].Nodes != 4 || d.NodePools[0].TaintValue != "cded1234abcd" || d.Expect.PoolNodes != 4 {
+		t.Errorf("R2b: node pool must have exactly one node per server: %+v", d.NodePools)
+	}
+	pdbs := 0
+	for _, o := range d.Objects {
+		switch o["kind"] {
+		case "PodDisruptionBudget":
+			pdbs++
+		case "TLSRoute":
+			t.Error("dedicated clusters do not use the shared gateway")
+		}
+	}
+	if pdbs != 2 {
+		t.Errorf("one PDB per shard, got %d", pdbs)
+	}
+	svc := dig(find(t, d, "ClickHouseInstallation"), "spec", "templates", "serviceTemplates").([]any)[0]
+	if dig(svc, "spec", "type") != "LoadBalancer" {
+		t.Error("dedicated clusters get their own load balancer")
+	}
+	if len(d.SQL.Hosts) != 4 || d.Expect.ServerHosts != 4 {
+		t.Errorf("2 shards x 2 replicas = 4 hosts, got %v", d.SQL.Hosts)
+	}
+	settings := dig(find(t, d, "ClickHouseInstallation"), "spec", "configuration", "settings").(map[string]any)
+	if _, ok := settings["skip_binary_checksum_checks"]; ok {
+		t.Error("checksum checks stay on outside the sandbox")
+	}
+	if settings["max_server_memory_usage"] != int64(2<<30)*85/100 {
+		t.Errorf("max_server_memory_usage must be explicit bytes, got %v", settings["max_server_memory_usage"])
+	}
+	plan, _ := Engine{}.PlanPlacement(dedicatedInput().Cluster.Spec)
+	if plan.Pool != "dedicated" || plan.Pods != 4 {
+		t.Errorf("dedicated capacity is whole nodes: %+v", plan)
 	}
 }
 
@@ -203,6 +318,16 @@ func TestValidate(t *testing.T) {
 	if errs := (Engine{}).Validate(ok, testInput().Cell); len(errs) == 0 {
 		t.Error("replica count must match the size")
 	}
+	mixed := testInput().Cluster.Spec
+	mixed.Tier = model.TierDedicated
+	if errs := (Engine{}).Validate(mixed, testInput().Cell); len(errs) == 0 {
+		t.Error("a shared size must not be accepted for the dedicated tier")
+	}
+	ded := dedicatedInput().Cluster.Spec
+	ded.Shards = 9
+	if errs := (Engine{}).Validate(ded, testInput().Cell); len(errs) == 0 {
+		t.Error("shard count above the size maximum must be rejected")
+	}
 }
 
 func TestObserve(t *testing.T) {
@@ -234,6 +359,18 @@ func TestObserve(t *testing.T) {
 	down.Probes = []engine.HostProbe{{Host: "a", OK: false, Error: "refused"}, {Host: "b", OK: true, ClusterHosts: 2, KeeperOK: true}}
 	if h := (Engine{}).Observe(d, 3, &down); h.Phase != engine.PhaseDegraded {
 		t.Fatalf("one replica down should be degraded: %v", h)
+	}
+	dd, _ := Engine{}.Render(dedicatedInput())
+	noNodes := *good
+	noNodes.Objects = map[string]string{"ClickHouseKeeperInstallation/cded1234abcd": "Completed", "ClickHouseInstallation/cded1234abcd": "Completed"}
+	noNodes.PodsReady = 7
+	noNodes.Probes = []engine.HostProbe{{OK: true, ClusterHosts: 4, KeeperOK: true}, {OK: true, ClusterHosts: 4, KeeperOK: true}, {OK: true, ClusterHosts: 4, KeeperOK: true}, {OK: true, ClusterHosts: 4, KeeperOK: true}}
+	if h := (Engine{}).Observe(dd, 3, &noNodes); h.Phase == engine.PhaseReady {
+		t.Fatalf("dedicated cluster without its node pool must not be ready: %v", h)
+	}
+	noNodes.PoolNodes = 4
+	if h := (Engine{}).Observe(dd, 3, &noNodes); h.Phase != engine.PhaseReady {
+		t.Fatalf("dedicated cluster with its pool should be ready: %v", h)
 	}
 }
 

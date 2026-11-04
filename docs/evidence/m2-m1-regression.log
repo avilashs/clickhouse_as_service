@@ -1,0 +1,37 @@
+== 1. create and connect over TLS
+      cluster cinme3hiaqsy
+PASS  cluster cinme3hiaqsy becomes ACTIVE
+PASS  stock clickhouse-client connects over TLS with CA verification
+PASS  quorum insert (insert_quorum=2) through the gateway succeeds
+PASS  table is replicated with 2/2 active replicas and 1000 rows
+PASS  plain MergeTree is refused
+PASS  url() to cloud metadata is refused
+PASS  wrong CA is rejected by the client
+PASS  HTTPS endpoint verifies against the published CA
+== 2. kill the worker mid-create
+      cluster cajokkzt4bos
+PASS  worker killed immediately after the create call
+PASS  worker killed while waiting for convergence
+PASS  replaying the create with the same key returns the same operation
+PASS  cluster cajokkzt4bos becomes ACTIVE after the worker restarts
+PASS  exactly one cluster row
+PASS  exactly one operation
+PASS  exactly one capacity reservation (COMMITTED)
+PASS  exactly one desired-state row
+PASS  exactly one workflow run
+PASS  exactly one namespace
+PASS  exactly one CHI and one CHK
+PASS  exactly one set of credentials
+PASS  an activity was retried after the kill (max attempt 2 > 1)
+== 3. delete
+PASS  cluster cinme3hiaqsy deleted
+PASS  namespace ch-cinme3hiaqsy removed
+PASS  reservation released
+PASS  credentials removed
+PASS  cluster record soft-deleted
+PASS  cluster cajokkzt4bos deleted
+PASS  namespace ch-cajokkzt4bos removed
+PASS  reservation released
+PASS  credentials removed
+PASS  cluster record soft-deleted
+== 0 failed

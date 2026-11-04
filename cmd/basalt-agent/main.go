@@ -57,6 +57,13 @@ func run(log *slog.Logger) error {
 		CellID: cell, ControlPlaneURL: url, Token: token, Kube: kc, Dynamic: dc, Mapper: mapper,
 		HTTP: &http.Client{Timeout: 30 * time.Second}, Log: log, Interval: 5 * time.Second,
 	}
+	switch os.Getenv("BASALT_NODE_POOLS") {
+	case "kind":
+		a.NodePools = agent.KindNodePools{Kube: kc}
+	case "":
+	default:
+		return errors.New("BASALT_NODE_POOLS must be empty or \"kind\" (Karpenter provider: M6)")
+	}
 	log.Info("agent started", "cell", cell, "controlPlane", url)
 	return a.Run(ctx)
 }

@@ -1,9 +1,12 @@
-# Local cell: 1 control-plane node, 3 "control" pool nodes and 3 "shared" pool nodes, one of each per zone.
+# Local cell, one node of each pool per zone:
+#   control  (3) provider-owned: Keeper, operator, gateway, agent. Tainted.
+#   shared   (3) multi-tenant ClickHouse servers under gVisor (runtime handler "runsc"). Tainted.
+#   free     (3) unassigned nodes. A dedicated cluster claims them and they become its own pool
+#                (the kind stand-in for a per-cluster Karpenter NodePool, design §8.1). Tainted.
+# runsc, its containerd shim and runsc.toml live in /var/lib/basalt/gvisor (hack/build-gvisor.sh).
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: basalt-cell1
-networking:
-  disableDefaultCNI: false
 nodes:
 - role: control-plane
 - role: worker
@@ -13,15 +16,41 @@ nodes:
 - role: worker
   labels: {basalt.io/pool: control, topology.kubernetes.io/zone: zone-c}
 - role: worker
-  labels: {basalt.io/pool: shared, topology.kubernetes.io/zone: zone-a}
+  labels: {basalt.io/pool: shared, basalt.io/sandbox: gvisor, topology.kubernetes.io/zone: zone-a}
+  extraMounts: &gvisor
+  - {hostPath: /var/lib/basalt/gvisor, containerPath: /opt/gvisor, readOnly: true}
 - role: worker
-  labels: {basalt.io/pool: shared, topology.kubernetes.io/zone: zone-b}
+  labels: {basalt.io/pool: shared, basalt.io/sandbox: gvisor, topology.kubernetes.io/zone: zone-b}
+  extraMounts: *gvisor
 - role: worker
-  labels: {basalt.io/pool: shared, topology.kubernetes.io/zone: zone-c}
+  labels: {basalt.io/pool: shared, basalt.io/sandbox: gvisor, topology.kubernetes.io/zone: zone-c}
+  extraMounts: *gvisor
+- role: worker
+  labels: {basalt.io/pool: free, topology.kubernetes.io/zone: zone-a}
+- role: worker
+  labels: {basalt.io/pool: free, topology.kubernetes.io/zone: zone-b}
+- role: worker
+  labels: {basalt.io/pool: free, topology.kubernetes.io/zone: zone-c}
+# cgroupfs driver (not systemd): runsc on cgroup v1 mis-resolves systemd slice paths and would
+# place sandboxes outside the pod cgroup, so CPU and memory limits would not apply (M2 spike).
+kubeadmConfigPatches:
+- |
+  kind: KubeletConfiguration
+  cgroupDriver: cgroupfs
+containerdConfigPatches:
 # Required inside sandboxed VMs (e.g. Firecracker-based CI) where processes may not lower
 # oom_score_adj; harmless elsewhere. Without it every pod sandbox fails with
 # "failed to update /proc/self/oom_score_adj: Permission denied".
-containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri"]
     restrict_oom_score_adj = true
+- |-
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+    SystemdCgroup = false
+- |-
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc]
+    runtime_type = "io.containerd.runsc.v1"
+    runtime_path = "/opt/gvisor/containerd-shim-runsc-v1"
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc.options]
+    TypeUrl = "io.containerd.runsc.v1.options"
+    ConfigPath = "/opt/gvisor/runsc.toml"

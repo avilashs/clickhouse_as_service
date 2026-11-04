@@ -396,6 +396,16 @@ reconciler keep `nodes == servers + surge`. During rotation `surge = 1`. The aud
 idle dedicated nodes older than 30 minutes, since they cost money and suggest a stuck
 rotation.
 
+**M2 implementation notes** (`internal/engine/clickhouse/placement.go`):
+- One pod template serves every shard, so per-shard rules (R1, R1b) select the cluster's pods
+  and use `matchLabelKeys: [clickhouse.altinity.com/shard]` instead of a fixed shard value
+  (Kubernetes ≥ 1.31).
+- Dedicated pods carry both the per-shard term and the exclusivity term.
+- On local cells, dedicated node pools are emulated by the agent: it claims pre-created
+  `basalt.io/pool=free` nodes across zones, all or nothing, and returns them only once no
+  tenant pods remain (`internal/agent/nodepool.go`). Cloud cells render Karpenter NodePools
+  from the same `NodePoolRequest`.
+
 ### 8.3 Admission (R4)
 
 A **ValidatingAdmissionPolicy** (CEL, in-process, so it doesn't need a webhook to stay
@@ -430,6 +440,14 @@ Companion policies (rev 2 corrects #2: rev 1 keyed it on the operator's ServiceA
    * The operator ServiceAccount itself may not create bare pods.
 
    Without this, a pod could evade the placement policy simply by omitting the label.
+3. **No direct node binding (M2).** `spec.nodeName` set at creation skips the scheduler and
+   therefore every taint. Only kubelets (static pods) and the volume provisioner may do it.
+4. **Node-level infrastructure** (DaemonSets, and on local cells the local-path provisioner's
+   helper pods) may tolerate every taint. Both the policy and the auditor allowlist exactly
+   these.
+
+Implemented in `deploy/cell/policies/placement.yaml` as four policies. The sandbox name is a
+parameter. Every rule has a negative test in `test/e2e/m2.sh`.
 
 Tests: one negative test per rule (a hand-crafted pod is rejected) and one positive test
 (rendered pods are admitted).
@@ -602,7 +620,7 @@ rejected. M3 extends this to every constrained setting.
 
 | Area | Control | Verified by |
 |---|---|---|
-| Memory | Guaranteed QoS (requests = limits). `max_server_memory_usage_to_ram_ratio = 0.85` (ClickHouse reads the cgroup memory limit; confirm on 26.8 under cgroup v2 **and under gVisor**, since gVisor emulates cgroups). `max_memory_usage` per query and `max_memory_usage_for_user` per size. `memory_worker` / page-cache settings checked. | M4: a runaway `GROUP BY` on high-cardinality data returns `MEMORY_LIMIT_EXCEEDED` (code 241); the pod's `restartCount` doesn't increase and there are no `OOMKilled` events. |
+| Memory | Guaranteed QoS (requests = limits). **`max_server_memory_usage` as explicit bytes (85% of the pod)**: the M2 spike showed ClickHouse can't read its cgroup under gVisor and sizes itself to the node, so `max_server_memory_usage_to_ram_ratio` (the earlier plan) is unsafe there and is not used. `max_memory_usage` per query and `max_memory_usage_for_user` per size. `memory_worker` / page-cache settings checked. | M4: a runaway `GROUP BY` on high-cardinality data returns `MEMORY_LIMIT_EXCEEDED` (code 241); the pod's `restartCount` doesn't increase and there are no `OOMKilled` events. |
 | CPU | Integer CPU limits; `max_threads` and `max_concurrent_queries` per size; background pool sizes scaled to vCPU. Dedicated: CPU manager `static` policy (exclusive cores). | M4/M6: CFS throttling (`container_cpu_cfs_throttled_periods_total`) vs. p99 latency at several `max_threads` values. |
 | Disk I/O | gp3 with per-volume IOPS and throughput (isolated per volume, by EBS design). No local disks in shared. The instance's EBS bandwidth is a *shared* node-level resource, so we cap volumes per node by instance EBS bandwidth during placement (`PlanPlacement` accounts for it). ClickHouse **workload scheduling** (`CREATE RESOURCE … (READ DISK, WRITE DISK)`, `CREATE WORKLOAD`) is evaluated for prioritising foreground reads over merges *within* a tenant. | M6 noisy-neighbour benchmark. |
 | Network | Per-pod egress bandwidth annotation (`kubernetes.io/egress-bandwidth`) via Cilium Bandwidth Manager. **Ingress shaping isn't solved by this.** Replication fetches into a pod are bounded by `max_replicated_fetches_network_bandwidth_for_server` / `max_replicated_sends_network_bandwidth_for_server`. | M6. |

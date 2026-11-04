@@ -337,6 +337,11 @@ objects:
             runAsUser: 101
             seccompProfile:
               type: RuntimeDefault
+          tolerations:
+          - effect: NoSchedule
+            key: basalt.io/pool
+            operator: Equal
+            value: control
           topologySpreadConstraints:
           - labelSelector:
               matchLabels:
@@ -430,8 +435,10 @@ objects:
         interserver_https_port: 9010
         listen_host: 0.0.0.0
         max_concurrent_queries: 20
+        max_server_memory_usage: 1825361100
         mysql_port: _removed_
         postgresql_port: _removed_
+        skip_binary_checksum_checks: 1
         tcp_port: _removed_
         tcp_port_secure: 9440
       users:
@@ -494,7 +501,8 @@ objects:
               - labelSelector:
                   matchLabels:
                     clickhouse.altinity.com/chi: cabc123def45
-                    clickhouse.altinity.com/shard: "0"
+                matchLabelKeys:
+                - clickhouse.altinity.com/shard
                 topologyKey: kubernetes.io/hostname
           automountServiceAccountToken: false
           containers:
@@ -519,6 +527,7 @@ objects:
               readOnly: true
           nodeSelector:
             basalt.io/pool: shared
+          runtimeClassName: gvisor
           securityContext:
             fsGroup: 101
             runAsGroup: 101
@@ -535,7 +544,8 @@ objects:
           - labelSelector:
               matchLabels:
                 clickhouse.altinity.com/chi: cabc123def45
-                clickhouse.altinity.com/shard: "0"
+            matchLabelKeys:
+            - clickhouse.altinity.com/shard
             maxSkew: 1
             minDomains: 3
             topologyKey: topology.kubernetes.io/zone
@@ -547,6 +557,7 @@ objects:
               secretName: ch-certs
       serviceTemplates:
       - generateName: clickhouse-{chi}
+        metadata: {}
         name: client
         spec:
           ports:
