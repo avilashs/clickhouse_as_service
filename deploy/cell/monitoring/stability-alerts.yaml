@@ -1,0 +1,111 @@
+# Prometheus alerting rules for cluster stability (M4), design §10 and failure modes F-4, F-5,
+# F-7, F-17. Load into the cell's Prometheus; on clusters with the Prometheus Operator wrap them
+# in a PrometheusRule. Runbooks: docs/runbooks/.
+#
+# Metrics come from the Altinity operator's metrics-exporter (the names below were read from a
+# running cell's /metrics, M4). Every metric carries the labels chi, namespace and hostname.
+# The disk metrics describe the filesystem under /var/lib/clickhouse: on a cloud cell that is the
+# cluster's EBS volume. On a kind cell it is the host disk (270 GB in the M4 VM, not the 5 GiB
+# volume), so these alerts can only be exercised there on a dedicated small filesystem.
+#
+# Not available from the exporter, so not alerted on: per-mutation state (use the query in the
+# stuck-mutation runbook) and the standalone Keeper pods' own metrics (the server-side
+# ZooKeeperSession and ReadonlyReplica below show the effect of a Keeper outage on every replica).
+groups:
+- name: basalt-stability
+  rules:
+  # --- disk (F-4): warn at 70% used, page at 85%
+  - alert: BasaltDiskUsageHigh
+    expr: 1 - (chi_clickhouse_metric_DiskFreeBytes{disk="default"} / chi_clickhouse_metric_DiskTotalBytes{disk="default"}) > 0.70
+    for: 10m
+    labels: {severity: ticket}
+    annotations:
+      summary: "{{ $labels.hostname }}: data volume is {{ $value | humanizePercentage }} full"
+      runbook: docs/runbooks/disk-full.md
+  - alert: BasaltDiskUsageCritical
+    expr: 1 - (chi_clickhouse_metric_DiskFreeBytes{disk="default"} / chi_clickhouse_metric_DiskTotalBytes{disk="default"}) > 0.85
+    for: 5m
+    labels: {severity: page}
+    annotations:
+      summary: "{{ $labels.hostname }}: data volume is {{ $value | humanizePercentage }} full; inserts stop at the reserve"
+      runbook: docs/runbooks/disk-full.md
+  # --- too many parts (F-7): parts_to_delay_insert is 1000, parts_to_throw_insert is 3000 per partition
+  - alert: BasaltPartsApproachingLimit
+    expr: chi_clickhouse_metric_MaxPartCountForPartition > 0.7 * 3000
+    for: 10m
+    labels: {severity: ticket}
+    annotations:
+      summary: "{{ $labels.hostname }}: a partition has {{ $value }} parts (inserts are rejected at 3000)"
+      runbook: docs/runbooks/too-many-parts.md
+  - alert: BasaltInsertsDelayed
+    expr: chi_clickhouse_metric_DelayedInserts > 0
+    for: 10m
+    labels: {severity: ticket}
+    annotations:
+      summary: "{{ $labels.hostname }}: inserts are being slowed down because a partition has too many parts"
+      runbook: docs/runbooks/too-many-parts.md
+  - alert: BasaltInsertsAboutToBeRejected
+    expr: chi_clickhouse_metric_MaxPartCountForPartition > 0.9 * 3000
+    for: 5m
+    labels: {severity: page}
+    annotations:
+      summary: "{{ $labels.hostname }}: a partition has {{ $value }} parts; inserts fail with TOO_MANY_PARTS at 3000"
+      runbook: docs/runbooks/too-many-parts.md
+  # --- merge and mutation backlog (F-17)
+  - alert: BasaltMergePoolSaturated
+    expr: chi_clickhouse_metric_BackgroundMergesAndMutationsPoolTask >= chi_clickhouse_metric_BackgroundMergesAndMutationsPoolSize
+    for: 30m
+    labels: {severity: ticket}
+    annotations:
+      summary: "{{ $labels.hostname }}: the merge/mutation pool has been full for 30 minutes"
+      runbook: docs/runbooks/stuck-mutation.md
+  - alert: BasaltReplicationQueueBacklog
+    expr: chi_clickhouse_metric_ReplicasMaxQueueSize > 500
+    for: 30m
+    labels: {severity: ticket}
+    annotations:
+      summary: "{{ $labels.hostname }}: replication queue holds {{ $value }} entries"
+      runbook: docs/runbooks/stuck-mutation.md
+  - alert: BasaltMutationRunningLong
+    expr: chi_clickhouse_metric_PartMutation > 0
+    for: 1h
+    labels: {severity: ticket}
+    annotations:
+      summary: "{{ $labels.hostname }}: a mutation has been running for over an hour (never auto-killed)"
+      runbook: docs/runbooks/stuck-mutation.md
+  # --- Keeper (F-5): a replica without a Keeper session is read-only
+  - alert: BasaltReplicaReadonly
+    expr: chi_clickhouse_metric_ReadonlyReplica > 0
+    for: 2m
+    labels: {severity: page}
+    annotations:
+      summary: "{{ $labels.hostname }}: {{ $value }} table(s) are read-only; inserts fail, selects work"
+      runbook: docs/runbooks/keeper-quorum-loss.md
+  - alert: BasaltNoKeeperSession
+    expr: chi_clickhouse_metric_ZooKeeperSession == 0
+    for: 2m
+    labels: {severity: page}
+    annotations:
+      summary: "{{ $labels.hostname }} has no Keeper session"
+      runbook: docs/runbooks/keeper-quorum-loss.md
+  - alert: BasaltReplicaLagging
+    expr: chi_clickhouse_metric_ReplicasMaxAbsoluteDelay > 300
+    for: 10m
+    labels: {severity: ticket}
+    annotations:
+      summary: "{{ $labels.hostname }}: a replica is {{ $value }}s behind"
+      runbook: docs/runbooks/keeper-quorum-loss.md
+  # --- system log tables (design §10 "System tables"): TTLs bound them, this catches a runaway
+  - alert: BasaltSystemLogsLarge
+    expr: sum by (chi, hostname) (chi_clickhouse_table_parts_bytes{database="system", active="1"}) > 2 * 1024 * 1024 * 1024
+    for: 1h
+    labels: {severity: ticket}
+    annotations:
+      summary: "{{ $labels.hostname }}: system tables hold {{ $value | humanize1024 }}B despite their TTLs"
+  # --- pod level (kube-state-metrics): a memory kill is a failure of the memory controls
+  - alert: BasaltServerOOMKilled
+    expr: kube_pod_container_status_last_terminated_reason{reason="OOMKilled", container="clickhouse"} == 1
+    for: 0m
+    labels: {severity: page}
+    annotations:
+      summary: "{{ $labels.namespace }}/{{ $labels.pod }} was OOM-killed; max_server_memory_usage should have prevented this"

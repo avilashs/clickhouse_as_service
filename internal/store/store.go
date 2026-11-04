@@ -353,6 +353,36 @@ func (s *Store) SetClusterState(ctx context.Context, id string, st model.Cluster
 	return err
 }
 
+// ListServingClusters returns the clusters that are ACTIVE or DEGRADED: the ones whose health
+// is derived from what the cell agent observes rather than owned by a workflow.
+func (s *Store) ListServingClusters(ctx context.Context) ([]model.Cluster, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+clusterCols+` FROM clusters c JOIN cluster_specs s ON s.cluster_id=c.id AND s.version=c.desired_spec_version
+		WHERE c.state IN ('ACTIVE','DEGRADED') AND c.deleted_at IS NULL ORDER BY c.created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Cluster
+	for rows.Next() {
+		c, err := scanCluster(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// SetServingHealth moves a cluster between ACTIVE and DEGRADED, and only while it is one of the
+// two: a concurrent delete or create-compensation has already moved it elsewhere and must win.
+// It reports whether anything changed.
+func (s *Store) SetServingHealth(ctx context.Context, id string, st model.ClusterState, reason string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE clusters SET state=$2, state_reason=$3, updated_at=now()
+		WHERE id=$1 AND state IN ('ACTIVE','DEGRADED') AND deleted_at IS NULL AND (state<>$2 OR state_reason<>$3)`, id, st, reason)
+	return tag.RowsAffected() > 0, err
+}
+
 // MarkClusterActive records that the desired spec has been reached.
 func (s *Store) MarkClusterActive(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `UPDATE clusters SET state='ACTIVE', state_reason='', current_spec_version=desired_spec_version, updated_at=now() WHERE id=$1 AND deleted_at IS NULL`, id)

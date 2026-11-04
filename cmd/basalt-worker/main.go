@@ -60,6 +60,7 @@ func run(log *slog.Logger) error {
 	w.RegisterActivity(acts)
 
 	go sweep(ctx, log, st, tc)
+	go healthSync(ctx, log, st, acts.Engines)
 	log.Info("worker started", "taskQueue", workflows.TaskQueue)
 	return w.Run(worker.InterruptCh())
 }
@@ -86,6 +87,22 @@ func sweep(ctx context.Context, log *slog.Logger, st *store.Store, tc client.Cli
 			} else {
 				log.Info("sweep started pending operation", "operation", op.ID)
 			}
+		}
+	}
+}
+
+// healthSync keeps ACTIVE and DEGRADED in step with what the cell agents observe.
+func healthSync(ctx context.Context, log *slog.Logger, st *store.Store, engines map[string]engine.Engine) {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if _, err := workflows.SyncHealth(ctx, st, engines, time.Now(), log); err != nil {
+			log.Warn("health sync", "err", err)
 		}
 	}
 }
