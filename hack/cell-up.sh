@@ -77,12 +77,9 @@ kubectl -n basalt-system wait gateway/shared --for=condition=Programmed --timeou
 # placement admission (design §8.3); applied last so the platform components above are in place
 kubectl apply -f deploy/cell/policies/placement.yaml -f deploy/cell/policies/security.yaml >/dev/null
 
-# NetworkPolicy enforcement: kindnet ignores NetworkPolicy, so local cells run
-# kube-network-policies, built from source by hack/build-netpol.sh (docs/m3-report.md)
-if docker exec "$CLUSTER-control-plane" crictl inspecti basalt-netpol:v1.1.3 >/dev/null 2>&1; then
-  kubectl apply -f deploy/cell/netpol/kube-network-policies.yaml >/dev/null
-  kubectl -n kube-system rollout status ds/kube-network-policies --timeout=180s >/dev/null
-else
-  echo "WARNING: basalt-netpol:v1.1.3 not loaded; NetworkPolicy is NOT enforced in this cell (run hack/build-netpol.sh)" >&2
-fi
+# NetworkPolicy enforcement: kindnet ignores NetworkPolicy, so local cells run kube-router in
+# firewall-only mode beside it (docs/m3-report.md)
+[ -n "$(docker exec "$CLUSTER-worker" crictl images -q basalt-kube-router:v2.11.2 2>/dev/null)" ] || hack/build-kube-router.sh
+kubectl apply -f deploy/cell/netpol/kube-router.yaml >/dev/null
+kubectl -n kube-system rollout status ds/kube-router --timeout=180s >/dev/null
 echo "cell $CLUSTER ready"

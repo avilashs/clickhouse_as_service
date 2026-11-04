@@ -673,15 +673,19 @@ func TestProviderQueriesCannotBeKilledByTenant(t *testing.T) {
 	var tenant result
 	killed := false
 	for i := 0; i < 20 && !killed; i++ {
+		// a fresh client per round: a new TCP connection, so the gateway picks a replica
+		// again (a reused keep-alive connection always reaches the same one; run 7)
+		killer := e.admin(e.a)
 		for _, k := range []string{
 			"KILL QUERY WHERE query_id IN ('" + qidP + "', '" + qidT + "') SYNC",
 			"KILL QUERY WHERE user = 'provider_ops' SYNC",
 			"KILL QUERY WHERE 1 SYNC",
 		} {
-			if r := a.q(k); r.code != 0 && r.code != codeAccessDenied {
+			if r := killer.q(k); r.code != 0 && r.code != codeAccessDenied {
 				t.Errorf("%s: %s", k, r)
 			}
 		}
+		killer.http.CloseIdleConnections()
 		select {
 		case tenant = <-tenDone:
 			killed = true
