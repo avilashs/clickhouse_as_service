@@ -1,0 +1,27 @@
+=== RUN   TestInsertStormIsContainedAndNeighbourUnaffected
+    stability_test.go:254: neighbour baseline: n=21 p50=683.14076ms p99=1.355987979s failures=0
+    stability_test.go:324: storm: 4559 inserts ok, 34 TOO_MANY_PARTS, 0 other errors, slowest insert 5691ms, max parts in a partition seen 1619, DelayedInserts>0 in 25 samples
+    stability_test.go:326: neighbour during storm: n=430 p50=644.017235ms p99=1.528431301s failures=0
+    stability_test.go:354: active parts 13m18s after merges resumed: 1333
+    stability_test.go:356: merges did not bring the part count below parts_to_delay_insert: 1333 active parts
+--- FAIL: TestInsertStormIsContainedAndNeighbourUnaffected (1250.49s)
+=== RUN   TestDiskFull
+    stability_test.go:610: replica 0 runs on basalt-cell1-worker4, data directory /var/local-path-provisioner/pvc-832df4f8-328e-42d1-a73e-e8aec8281bf8_ch-ciodue35kuoz_data-chi-ciodue35kuoz-default-0-0-0
+    stability_test.go:621: data directory on a 526 MiB tmpfs (270 MiB in use, reserve 64 MiB)
+    stability_test.go:638: disk as the server sees it (free_space, keep_free_space): 205791232	67108864
+    stability_test.go:656: 11 inserts of ~20 MB succeeded; then: Received exception from server (version 26.8.34): Code: 243. DB::Exception: Received from chi-ciodue35kuoz-default-0-0.ch-ciodue35kuoz.svc.cluster.local:9440. DB::Exception: Cannot reserve 19.38 MiB, not enough space. (NOT_ENOUGH_SPACE) (query: INSERT INTO default.stab_fill SETTINGS async_insert = 0
+    stability_test.go:657: disk at the refusal (free_space, keep_free_space): 14462976	67108864
+=== RUN   TestDiskFull/stopped_before_the_volume_was_full
+=== RUN   TestDiskFull/reads_still_work_and_the_pod_stayed_up
+=== RUN   TestDiskFull/deleting_the_balloon_gives_headroom
+    stability_test.go:685: free_space, keep_free_space before the release: 15753216	67108864; after: 81383424	67108864
+=== RUN   TestDiskFull/dropping_data_frees_the_volume_for_good
+    stability_test.go:698: disk after the drop: 291827712	67108864
+--- PASS: TestDiskFull (379.58s)
+    --- PASS: TestDiskFull/stopped_before_the_volume_was_full (1.06s)
+    --- PASS: TestDiskFull/reads_still_work_and_the_pod_stayed_up (8.16s)
+    --- PASS: TestDiskFull/deleting_the_balloon_gives_headroom (29.63s)
+    --- PASS: TestDiskFull/dropping_data_frees_the_volume_for_good (43.88s)
+FAIL
+FAIL	github.com/avilashs/clickhouse_as_service/test/stability	1630.078s
+FAIL

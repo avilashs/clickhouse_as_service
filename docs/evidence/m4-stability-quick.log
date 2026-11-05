@@ -1,0 +1,44 @@
+=== RUN   TestControlsLive
+=== RUN   TestControlsLive/server_settings
+=== RUN   TestControlsLive/MergeTree_thresholds_sit_below_the_merge_pool
+    stability_test.go:52: 
+        number_of_free_entries_in_pool_to_execute_mutation	2
+        number_of_free_entries_in_pool_to_execute_optimize_entire_partition	3
+        number_of_free_entries_in_pool_to_lower_max_size_of_merge	1
+        parts_to_delay_insert	1000
+        parts_to_throw_insert	3000
+=== RUN   TestControlsLive/every_system_log_table_has_a_TTL
+    stability_test.go:75: 22 log tables, all with a TTL
+=== RUN   TestControlsLive/init_containers_ran_and_the_balloon_exists
+    stability_test.go:86: replica 0 balloon: "stat: cannot statx '/var/lib/clickhouse/.basalt-balloon': No such file or directory\ncommand terminated with exit code 1" (exit status 1), want 67108864 bytes
+=== RUN   TestControlsLive/the_platform_quota_exists_and_tenants_cannot_touch_it
+--- FAIL: TestControlsLive (11.26s)
+    --- PASS: TestControlsLive/server_settings (0.22s)
+    --- PASS: TestControlsLive/MergeTree_thresholds_sit_below_the_merge_pool (0.11s)
+    --- PASS: TestControlsLive/every_system_log_table_has_a_TTL (7.08s)
+    --- FAIL: TestControlsLive/init_containers_ran_and_the_balloon_exists (3.00s)
+    --- PASS: TestControlsLive/the_platform_quota_exists_and_tenants_cannot_touch_it (0.84s)
+=== RUN   TestQuotaIsEnforced
+    stability_test.go:144: 40 queries: 8 allowed, 32 refused with QUOTA_EXCEEDED
+--- PASS: TestQuotaIsEnforced (17.84s)
+=== RUN   TestAsyncInsertAcknowledgesAfterTheFlush
+    stability_test.go:170: acknowledged after 4.05s (flush timeout 3s)
+--- PASS: TestAsyncInsertAcknowledgesAfterTheFlush (11.93s)
+=== RUN   TestRunawayQueriesDoNotKillThePod
+=== RUN   TestRunawayQueriesDoNotKillThePod/one_runaway_query
+=== RUN   TestRunawayQueriesDoNotKillThePod/eight_at_once
+    stability_test.go:218: results: map[241 MEMORY_LIMIT_EXCEEDED:8]
+--- PASS: TestRunawayQueriesDoNotKillThePod (79.06s)
+    --- PASS: TestRunawayQueriesDoNotKillThePod/one_runaway_query (27.04s)
+    --- PASS: TestRunawayQueriesDoNotKillThePod/eight_at_once (30.45s)
+=== RUN   TestObjectCountLimits
+=== RUN   TestObjectCountLimits/databases
+    stability_test.go:382: created 99 databases, then: code 725: Code: 725. DB::Exception: Too many databases. The limit (server configuration parameter `max_database_num_to_throw`) is set to 100, the current number of databases is 100. (TOO_MANY_DATABASES) (version 26.8.34.13 (offici
+=== RUN   TestObjectCountLimits/tables
+    stability_test.go:400: created 500 tables, then: code 724: Code: 724. DB::Exception: Too many tables. The limit (server configuration parameter `max_table_num_to_throw`) is set to 500, the current number is 500. (TOO_MANY_TABLES) (version 26.8.34.13 (official build))
+--- PASS: TestObjectCountLimits (144.22s)
+    --- PASS: TestObjectCountLimits/databases (43.61s)
+    --- PASS: TestObjectCountLimits/tables (100.60s)
+FAIL
+FAIL	github.com/avilashs/clickhouse_as_service/test/stability	264.311s
+FAIL

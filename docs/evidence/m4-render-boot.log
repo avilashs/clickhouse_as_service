@@ -1,0 +1,99 @@
+== t-2
+PASS  server boots with the rendered settings and profiles
+PASS  server setting background_pool_size = 2
+PASS  server setting background_fetches_pool_size = 2
+PASS  server setting background_schedule_pool_size = 32
+PASS  server setting concurrent_threads_soft_limit_num = 4
+PASS  server setting max_table_num_to_throw = 500
+PASS  server setting max_database_num_to_throw = 100
+PASS  server setting max_table_size_to_drop = 0
+PASS  server setting max_partition_size_to_drop = 0
+PASS  MergeTree default parts_to_delay_insert = 1000
+PASS  MergeTree default parts_to_throw_insert = 3000
+PASS  MergeTree default max_parts_in_total = 100000
+PASS  default profile max_threads = 2
+PASS  default profile max_memory_usage = 1717986918
+PASS  default profile max_partitions_per_insert_block = 100
+PASS  default profile query_profiler_real_time_period_ns = 0
+PASS  default profile max_temporary_data_on_disk_size_for_user = 536870912
+PASS  default profile log_queries = 1
+PASS  profile constraint refuses max_partitions_per_insert_block = 100000
+PASS  profile constraint pins log_queries for tenants
+PASS  the operator's HTTP login works (URL parameters '')
+PASS  the operator's HTTP login works (URL parameters '&log_queries=0')
+PASS  the operator's HTTP login works (URL parameters '&log_queries=1')
+PASS  the server created the system log tables
+PASS  the operator's removal of query_thread_log holds
+PASS  system.aggregated_zookeeper_log has the rendered TTL (7 days)
+PASS  system.asynchronous_insert_log has the rendered TTL (7 days)
+PASS  system.asynchronous_metric_log has the rendered TTL (3 days)
+PASS  system.background_schedule_pool_log has the rendered TTL (3 days)
+PASS  system.backup_log has the rendered TTL (30 days)
+PASS  system.blob_storage_log has the rendered TTL (7 days)
+PASS  system.crash_log has the rendered TTL (30 days)
+PASS  system.delta_lake_metadata_log has the rendered TTL (3 days)
+PASS  system.error_log has the rendered TTL (7 days)
+PASS  system.iceberg_metadata_log has the rendered TTL (3 days)
+PASS  system.metric_log has the rendered TTL (3 days)
+PASS  system.opentelemetry_span_log has the rendered TTL (3 days)
+PASS  system.part_log has the rendered TTL (7 days)
+PASS  system.processors_profile_log has the rendered TTL (3 days)
+PASS  system.query_log has the rendered TTL (14 days)
+PASS  system.query_metric_log has the rendered TTL (3 days)
+PASS  system.query_views_log has the rendered TTL (7 days)
+PASS  system.s3queue_log has the rendered TTL (3 days)
+PASS  system.session_log has the rendered TTL (30 days)
+PASS  system.text_log has the rendered TTL (3 days)
+PASS  system.trace_log has the rendered TTL (3 days)
+PASS  system.zookeeper_connection_log has the rendered TTL (7 days)
+PASS  no rendered TTL names a log table the server does not create
+== dt-1-2x2
+PASS  server boots with the rendered settings and profiles
+PASS  server setting background_pool_size = 2
+PASS  server setting background_fetches_pool_size = 2
+PASS  server setting background_schedule_pool_size = 32
+PASS  server setting concurrent_threads_soft_limit_num = 4
+PASS  server setting max_table_num_to_throw = 500
+PASS  server setting max_database_num_to_throw = 100
+PASS  server setting max_table_size_to_drop = 0
+PASS  server setting max_partition_size_to_drop = 0
+PASS  MergeTree default parts_to_delay_insert = 1000
+PASS  MergeTree default parts_to_throw_insert = 3000
+PASS  MergeTree default max_parts_in_total = 100000
+PASS  default profile max_threads = 2
+PASS  default profile max_memory_usage = 1717986918
+PASS  default profile max_partitions_per_insert_block = 100
+PASS  default profile query_profiler_real_time_period_ns = 0
+PASS  default profile max_temporary_data_on_disk_size_for_user = 536870912
+PASS  default profile log_queries = 1
+PASS  profile constraint refuses max_partitions_per_insert_block = 100000
+PASS  profile constraint pins log_queries for tenants
+PASS  the operator's HTTP login works (URL parameters '')
+PASS  the operator's HTTP login works (URL parameters '&log_queries=0')
+PASS  the operator's HTTP login works (URL parameters '&log_queries=1')
+PASS  the server created the system log tables
+PASS  the operator's removal of query_thread_log holds
+PASS  system.aggregated_zookeeper_log has the rendered TTL (7 days)
+PASS  system.asynchronous_insert_log has the rendered TTL (7 days)
+PASS  system.asynchronous_metric_log has the rendered TTL (3 days)
+PASS  system.background_schedule_pool_log has the rendered TTL (3 days)
+PASS  system.backup_log has the rendered TTL (30 days)
+PASS  system.blob_storage_log has the rendered TTL (7 days)
+PASS  system.crash_log has the rendered TTL (30 days)
+PASS  system.delta_lake_metadata_log has the rendered TTL (3 days)
+PASS  system.error_log has the rendered TTL (7 days)
+PASS  system.iceberg_metadata_log has the rendered TTL (3 days)
+PASS  system.metric_log has the rendered TTL (3 days)
+PASS  system.opentelemetry_span_log has the rendered TTL (3 days)
+PASS  system.part_log has the rendered TTL (7 days)
+PASS  system.processors_profile_log has the rendered TTL (3 days)
+PASS  system.query_log has the rendered TTL (14 days)
+PASS  system.query_metric_log has the rendered TTL (3 days)
+PASS  system.query_views_log has the rendered TTL (7 days)
+PASS  system.s3queue_log has the rendered TTL (3 days)
+PASS  system.session_log has the rendered TTL (30 days)
+PASS  system.text_log has the rendered TTL (3 days)
+PASS  system.trace_log has the rendered TTL (3 days)
+PASS  system.zookeeper_connection_log has the rendered TTL (7 days)
+PASS  no rendered TTL names a log table the server does not create
+== 0 failed

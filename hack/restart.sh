@@ -6,7 +6,8 @@ BASALT_HOME=${BASALT_HOME:-/var/lib/basalt}
 # shellcheck disable=SC1091
 source "$BASALT_HOME/env"
 for p in "$@"; do
-  pkill -f "bin/basalt-$p" 2>/dev/null || true
+  # exact process name: `pkill -f` also matched the calling shell whenever its command line mentioned bin/basalt-$p
+  pkill -x "basalt-$p" 2>/dev/null || true
   sleep 1
   nohup "bin/basalt-$p" >> "$BASALT_HOME/logs/$p.log" 2>&1 &
   echo "started basalt-$p (pid $!)"

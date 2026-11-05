@@ -1,0 +1,21 @@
+=== RUN   TestKeeperQuorumLoss
+    stability_test.go:476: ReadonlyReplica on replica 0: "1"
+=== RUN   TestKeeperQuorumLoss/inserts_fail,_selects_work
+    stability_test.go:488: default retries, 20s client timeout: transport error: Post "https://ciodue35kuoz.cell1.db.example.com/?default_format=TSV": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+    stability_test.go:492: no retries: code 999: Code: 999. Coordination::Exception: Coordination error: Connection loss, path /clickhouse/tables/9f825cc7-8036-4127-8b0a-034225c6bfb1/0/block_numbers/all. (KEEPER_EXCEPTION) (version 26.8.34.13 (official build))
+=== RUN   TestKeeperQuorumLoss/the_API_reports_DEGRADED
+    stability_test.go:507: after ~0s: DEGRADED 3/5 pods ready; chi-ciodue35kuoz-default-0-0.ch-ciodue35kuoz.svc.cluster.local cannot reach Keeper; chi-ciodue35kuoz-default-0-1.ch-ciodue35kuoz.svc.cluster.local cannot reach Keeper
+=== RUN   TestKeeperQuorumLoss/a_replica_that_restarts_waits_for_Keeper_instead_of_crash-looping
+    stability_test.go:532: after 75s of outage: {UID:86fc0c66-5308-4e2a-8b02-4cff7178525d Phase:Pending Restarts:0 OOM:false Init:wait-for-keeper Ready:false}
+=== NAME  TestKeeperQuorumLoss
+    stability_test.go:554: after the Keeper nodes were started: all 3 ready after 11s, restarted replica ready after 1m15s
+=== RUN   TestKeeperQuorumLoss/the_API_reports_ACTIVE_again
+=== RUN   TestKeeperQuorumLoss/inserts_work_again
+--- PASS: TestKeeperQuorumLoss (249.36s)
+    --- PASS: TestKeeperQuorumLoss/inserts_fail,_selects_work (42.39s)
+    --- PASS: TestKeeperQuorumLoss/the_API_reports_DEGRADED (0.01s)
+    --- PASS: TestKeeperQuorumLoss/a_replica_that_restarts_waits_for_Keeper_instead_of_crash-looping (78.90s)
+    --- PASS: TestKeeperQuorumLoss/the_API_reports_ACTIVE_again (15.03s)
+    --- PASS: TestKeeperQuorumLoss/inserts_work_again (0.58s)
+PASS
+ok  	github.com/avilashs/clickhouse_as_service/test/stability	249.372s

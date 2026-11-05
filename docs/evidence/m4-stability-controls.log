@@ -1,0 +1,21 @@
+=== RUN   TestControlsLive
+=== RUN   TestControlsLive/server_settings
+=== RUN   TestControlsLive/MergeTree_thresholds_sit_below_the_merge_pool
+    stability_test.go:52: 
+        number_of_free_entries_in_pool_to_execute_mutation	2
+        number_of_free_entries_in_pool_to_execute_optimize_entire_partition	3
+        number_of_free_entries_in_pool_to_lower_max_size_of_merge	1
+        parts_to_delay_insert	1000
+        parts_to_throw_insert	3000
+=== RUN   TestControlsLive/every_system_log_table_has_a_TTL
+    stability_test.go:75: 22 log tables, all with a TTL
+=== RUN   TestControlsLive/init_containers_ran_and_the_balloon_exists
+=== RUN   TestControlsLive/the_platform_quota_exists_and_tenants_cannot_touch_it
+--- PASS: TestControlsLive (19.61s)
+    --- PASS: TestControlsLive/server_settings (1.25s)
+    --- PASS: TestControlsLive/MergeTree_thresholds_sit_below_the_merge_pool (0.54s)
+    --- PASS: TestControlsLive/every_system_log_table_has_a_TTL (11.51s)
+    --- PASS: TestControlsLive/init_containers_ran_and_the_balloon_exists (5.29s)
+    --- PASS: TestControlsLive/the_platform_quota_exists_and_tenants_cannot_touch_it (1.01s)
+PASS
+ok  	github.com/avilashs/clickhouse_as_service/test/stability	19.616s

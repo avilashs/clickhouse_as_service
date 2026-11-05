@@ -27,4 +27,4 @@ Almost always many tiny inserts: each synchronous insert makes one part, and mer
 
 3. Tell the owner to batch inserts (thousands of rows each) or to use asynchronous inserts. The platform pins `wait_for_async_insert = 1`, so an acknowledged async insert is durable; the `async_insert_busy_timeout_max_ms` setting controls how long a small insert waits to be batched.
 
-4. Once the count falls below 1000, inserts are no longer delayed. Merges on a 1-vCPU server work through roughly 600 parts a minute; do not raise `parts_to_throw_insert`, it only moves the failure to a slower and larger one.
+4. Once the count falls below 1000, inserts are no longer delayed. Recovery is slow on a small server: in the M4 tests a 1-vCPU `t-2` server under gVisor on a loaded 4-vCPU VM merged between roughly 250 and 650 parts a minute (4559 parts took over 13 minutes to fall to 1333); do not raise `parts_to_throw_insert`, it only moves the failure to a slower and larger one.
