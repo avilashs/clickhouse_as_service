@@ -117,11 +117,14 @@ func (a *Activities) jobSpec(ctx context.Context, action string, target model.Ba
 			scope.ReadPrefixes = append(scope.ReadPrefixes, c.Path)
 		}
 		if b.BaseBackupID != "" {
-			spec.BaseURL = jobURL(target, chain[1].Path)
+			spec.Bases = []model.JobBase{{ID: chain[1].ID, URL: jobURL(target, chain[1].Path)}}
 		}
 	} else {
 		for _, c := range chain {
 			scope.ReadPrefixes = append(scope.ReadPrefixes, c.Path)
+		}
+		for _, c := range chain[1:] {
+			spec.Bases = append(spec.Bases, model.JobBase{ID: c.ID, URL: jobURL(target, c.Path)})
 		}
 	}
 	if a.Backup == nil || a.Backup.Provider == nil {

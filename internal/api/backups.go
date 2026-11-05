@@ -186,3 +186,62 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request, project s
 	}
 	s.startAndRespond(w, r, op)
 }
+
+// verifyBackup restores the backup into a scratch cluster no tenant can see, checks every table
+// and compares the data with what the source held when the backup was taken. It is what the
+// scheduler does for every cluster once a day; this runs it on demand. The backup shows
+// "verified" only when a verification passed.
+func (s *Server) verifyBackup(w http.ResponseWriter, r *http.Request, project string) {
+	if _, ok := idempotencyKey(w, r); !ok {
+		return
+	}
+	b, err := s.Store.GetBackup(r.Context(), project, r.PathValue("backup"))
+	if err != nil || b.ClusterID != r.PathValue("cluster") {
+		s.storeErr(w, store.ErrNotFound)
+		return
+	}
+	if b.State != model.BackupCompleted {
+		writeErr(w, 409, "CONFLICT", fmt.Sprintf("the backup is %s; only a COMPLETED backup can be verified", b.State))
+		return
+	}
+	if n, err := s.Store.Count(r.Context(), "restore_verifications", "state='RUNNING'"); err == nil && n > 0 {
+		writeErr(w, 409, "CONFLICT", "another restore verification is running; they run one at a time")
+		return
+	}
+	vid, err := workflows.StartVerificationWorkflow(r.Context(), s.Temporal, b.ID, false)
+	if err != nil {
+		s.Log.Error("cannot start verification", "backup", b.ID, "err", err)
+		writeErr(w, 500, "INTERNAL", "cannot start the verification")
+		return
+	}
+	_ = s.Store.Audit(r.Context(), "project:"+project, "backup.verify", b.ClusterID, vid, map[string]any{"backup": b.ID})
+	writeJSON(w, 202, map[string]any{"verificationId": vid, "backupId": b.ID})
+}
+
+// VerificationView is one restore verification of a backup.
+type VerificationView struct {
+	ID         string          `json:"id"`
+	State      string          `json:"state"` // RUNNING | PASSED | FAILED
+	Scheduled  bool            `json:"scheduled"`
+	Detail     json.RawMessage `json:"detail"`
+	CreatedAt  time.Time       `json:"createdAt"`
+	FinishedAt *time.Time      `json:"finishedAt,omitempty"`
+}
+
+func (s *Server) listVerifications(w http.ResponseWriter, r *http.Request, project string) {
+	b, err := s.Store.GetBackup(r.Context(), project, r.PathValue("backup"))
+	if err != nil || b.ClusterID != r.PathValue("cluster") {
+		s.storeErr(w, store.ErrNotFound)
+		return
+	}
+	vs, err := s.Store.Verifications(r.Context(), b.ID)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	out := make([]VerificationView, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, VerificationView{ID: v.ID, State: v.State, Scheduled: v.Scheduled, Detail: v.Detail, CreatedAt: v.CreatedAt, FinishedAt: v.FinishedAt})
+	}
+	writeJSON(w, 200, map[string]any{"verifications": out})
+}

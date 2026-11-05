@@ -68,20 +68,7 @@ func setup(t *testing.T) *env {
 			b: cluster{project: getenv(t, "LIFE_PROJECT_B"), token: getenv(t, "LIFE_TOKEN_B"), id: getenv(t, "LIFE_CLUSTER_B")},
 		}
 		for _, c := range []*cluster{&e.a, &e.b} {
-			var info struct {
-				Endpoint struct{ Host, CACertificate string } `json:"endpoint"`
-			}
-			st, body := e.apiGet("/v1/projects/"+c.project+"/clusters/"+c.id, c.token)
-			if st != 200 || json.Unmarshal(body, &info) != nil {
-				t.Fatalf("describe %s: %d %s", c.id, st, body)
-			}
-			c.host, c.ca = info.Endpoint.Host, info.Endpoint.CACertificate
-			var cred struct{ Password string }
-			st, body = e.apiGet("/v1/projects/"+c.project+"/clusters/"+c.id+"/initialCredentials", c.token)
-			if st != 200 || json.Unmarshal(body, &cred) != nil {
-				t.Fatalf("credentials %s: %d", c.id, st)
-			}
-			c.adminPW = cred.Password
+			e.fill(t, c)
 		}
 		theEnv = e
 	})
@@ -89,6 +76,25 @@ func setup(t *testing.T) *env {
 		t.Fatal("setup failed")
 	}
 	return theEnv
+}
+
+// fill reads a cluster's endpoint and initial credentials from the API.
+func (e *env) fill(t *testing.T, c *cluster) {
+	t.Helper()
+	var info struct {
+		Endpoint struct{ Host, CACertificate string } `json:"endpoint"`
+	}
+	st, body := e.apiGet("/v1/projects/"+c.project+"/clusters/"+c.id, c.token)
+	if st != 200 || json.Unmarshal(body, &info) != nil {
+		t.Fatalf("describe %s: %d %s", c.id, st, body)
+	}
+	c.host, c.ca = info.Endpoint.Host, info.Endpoint.CACertificate
+	var cred struct{ Password string }
+	st, body = e.apiGet("/v1/projects/"+c.project+"/clusters/"+c.id+"/initialCredentials", c.token)
+	if st != 200 || json.Unmarshal(body, &cred) != nil {
+		t.Fatalf("credentials %s: %d", c.id, st)
+	}
+	c.adminPW = cred.Password
 }
 
 func (e *env) apiGet(path, token string) (int, []byte) {

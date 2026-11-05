@@ -340,7 +340,8 @@ func (s *Store) BeginDeleteBackup(ctx context.Context, projectID, id string) (mo
 }
 
 // BackupsToExpire returns completed or failed backups created before the cutoff that nothing is
-// built on, except the newest completed backup of each cluster, which is always kept. Run
+// built on, except the newest completed backup of each live cluster, which is always kept (a
+// deleted cluster keeps none: its backups age out after the retention period). Run
 // repeatedly, this unravels a chain from its newest member: a chain goes whole, never in part.
 func (s *Store) BackupsToExpire(ctx context.Context, before time.Time) ([]model.Backup, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -348,7 +349,9 @@ func (s *Store) BackupsToExpire(ctx context.Context, before time.Time) ([]model.
 		WHERE b.state IN ('COMPLETED','FAILED') AND b.created_at < $1
 		  AND NOT EXISTS (SELECT 1 FROM backups d WHERE d.base_backup_id=b.id AND d.state<>'DELETED')
 		  AND NOT EXISTS (SELECT 1 FROM operations o WHERE o.kind='RESTORE_CLUSTER' AND o.state IN ('PENDING','RUNNING') AND o.params->>'backupId'=b.id)
-		  AND (b.state='FAILED' OR EXISTS (SELECT 1 FROM backups n WHERE n.cluster_id=b.cluster_id AND n.state='COMPLETED' AND n.created_at > b.created_at))
+		  AND (b.state='FAILED'
+		       OR EXISTS (SELECT 1 FROM clusters c WHERE c.id=b.cluster_id AND c.deleted_at IS NOT NULL)
+		       OR EXISTS (SELECT 1 FROM backups n WHERE n.cluster_id=b.cluster_id AND n.state='COMPLETED' AND n.created_at > b.created_at))
 		ORDER BY b.created_at LIMIT 50`, before)
 	if err != nil {
 		return nil, err

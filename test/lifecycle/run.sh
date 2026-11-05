@@ -12,8 +12,9 @@ GW=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gat
 kubectl -n envoy-gateway-system port-forward "svc/$GW" 29440:9440 28443:8443 >/dev/null 2>&1 &
 PF=$!; trap 'kill $PF 2>/dev/null' EXIT
 sleep 3
+export LIFE_STORE_ENDPOINT=${BASALT_BACKUP_CONTROL_ENDPOINT:-} LIFE_STORE_ACCESS_KEY=${BASALT_BACKUP_ACCESS_KEY:-} LIFE_STORE_SECRET_KEY=${BASALT_BACKUP_SECRET_KEY:-} LIFE_STORE_BUCKET=basalt-backups
 export LIFE_API=http://127.0.0.1:8080 LIFE_GATEWAY_HTTPS=127.0.0.1:28443 LIFE_STEPS=$STEPS \
   LIFE_PROJECT_A=demo LIFE_TOKEN_A=$BASALT_TENANT_TOKEN LIFE_CLUSTER_A=$A \
   LIFE_PROJECT_B=demo LIFE_TOKEN_B=$BASALT_TENANT_TOKEN LIFE_CLUSTER_B=$A
 LOG=${LOG:-$BASALT_HOME/logs/lifecycle-$(date +%Y%m%d-%H%M%S).log}
-go test -tags lifecycle -count=1 -v -timeout 150m -run TestLifecycleUnderLoad ./test/lifecycle/ 2>&1 | tee "$LOG"
+go test -tags lifecycle -count=1 -v -timeout 150m -run "${LIFE_RUN:-TestLifecycleUnderLoad}" ./test/lifecycle/ 2>&1 | tee "$LOG"

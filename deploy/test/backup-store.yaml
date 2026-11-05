@@ -17,7 +17,7 @@ data:
     rpc_public_addr = "127.0.0.1:3901"
     rpc_secret = "0000000000000000000000000000000000000000000000000000000000000001"
     [s3_api]
-    s3_region = "garage"
+    s3_region = "us-east-1"   # what ClickHouse and minio-go sign for by default
     api_bind_addr = "0.0.0.0:3900"
 ---
 apiVersion: apps/v1

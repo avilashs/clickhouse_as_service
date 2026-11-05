@@ -136,24 +136,46 @@ func collectionName(jobID string) string {
 	return "basalt_job_" + strings.NewReplacer("-", "_").Replace(jobID)
 }
 
-// withCollection creates the job's named collection on the host, runs fn and drops it again. A
-// collection left by a crashed earlier job is replaced.
-func withCollection(ctx context.Context, c clickhouse.Conn, j api.JobEntry, fn func(name string) error) error {
-	name := collectionName(j.ID)
-	create := fmt.Sprintf("CREATE OR REPLACE NAMED COLLECTION %s AS url = %s, access_key_id = %s, secret_access_key = %s",
-		name, sqlString(j.Spec.URL), sqlString(j.Spec.AccessKeyID), sqlString(j.Spec.SecretAccessKey))
-	if j.Spec.SessionToken != "" {
-		create += ", session_token = " + sqlString(j.Spec.SessionToken)
-	}
-	if err := c.Exec(ctx, create); err != nil {
-		return fmt.Errorf("create the job's named collection: %s", scrub(err.Error(), j.Spec))
-	}
+// withCollection creates the job's named collection on the host, runs fn and drops them again.
+// Base backups of an incremental backup get collections of their own (model.BaseCollection):
+// overriding the url of one collection in the statement would need the grant to see the
+// collection's secrets, and a restore must find each base under the name the backup recorded.
+func withCollection(ctx context.Context, c clickhouse.Conn, j api.JobEntry, fn func(name string, bases []string) error) error {
+	var made []string
 	defer func() {
 		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		_ = c.Exec(dctx, "DROP NAMED COLLECTION IF EXISTS "+name)
+		for _, n := range made {
+			_ = c.Exec(dctx, "DROP NAMED COLLECTION IF EXISTS "+n)
+		}
 	}()
-	return fn(name)
+	create := func(name, url string) error {
+		made = append(made, name)
+		// a collection left by a crashed earlier attempt of the same job is replaced
+		_ = c.Exec(ctx, "DROP NAMED COLLECTION IF EXISTS "+name)
+		stmt := fmt.Sprintf("CREATE NAMED COLLECTION %s AS url = %s, access_key_id = %s, secret_access_key = %s",
+			name, sqlString(url), sqlString(j.Spec.AccessKeyID), sqlString(j.Spec.SecretAccessKey))
+		if j.Spec.SessionToken != "" {
+			stmt += ", session_token = " + sqlString(j.Spec.SessionToken)
+		}
+		if err := c.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("create the job's named collection: %s", scrub(err.Error(), j.Spec))
+		}
+		return nil
+	}
+	name := collectionName(j.ID)
+	if err := create(name, j.Spec.URL); err != nil {
+		return err
+	}
+	var bases []string
+	for _, b := range j.Spec.Bases {
+		bn := model.BaseCollection(b.ID)
+		if err := create(bn, b.URL); err != nil {
+			return err
+		}
+		bases = append(bases, bn)
+	}
+	return fn(name, bases)
 }
 
 // userDatabases are the databases a backup covers: everything except the system ones.
@@ -281,11 +303,11 @@ func (a *Agent) backupJob(ctx context.Context, j api.JobEntry, d engine.Desired)
 	for _, db := range dbs {
 		targets = append(targets, "DATABASE "+quoteIdent(db))
 	}
-	err = withCollection(ctx, c, j, func(nc string) error {
+	err = withCollection(ctx, c, j, func(nc string, bases []string) error {
 		stmt := fmt.Sprintf("BACKUP %s TO S3(%s)", strings.Join(targets, ", "), nc)
-		if j.Spec.BaseURL != "" {
+		if len(bases) > 0 {
 			// the base backup is read with the same credentials: they cover its prefix as well
-			stmt += fmt.Sprintf(" SETTINGS base_backup = S3(%s, url = %s)", nc, sqlString(j.Spec.BaseURL))
+			stmt += fmt.Sprintf(" SETTINGS base_backup = S3(%s)", bases[0])
 		}
 		var id, status string
 		if err := c.QueryRow(ctx, stmt+" ASYNC").Scan(&id, &status); err != nil {
@@ -310,7 +332,7 @@ func (a *Agent) restoreJob(ctx context.Context, j api.JobEntry, d engine.Desired
 		return res, err
 	}
 	defer c.Close()
-	err = withCollection(ctx, c, j, func(nc string) error {
+	err = withCollection(ctx, c, j, func(nc string, _ []string) error {
 		var id, status string
 		if err := c.QueryRow(ctx, fmt.Sprintf("RESTORE ALL FROM S3(%s) ASYNC", nc)).Scan(&id, &status); err != nil {
 			return fmt.Errorf("RESTORE: %s", scrub(err.Error(), j.Spec))

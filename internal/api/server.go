@@ -78,6 +78,8 @@ func (s *Server) register(handle func(pattern string, h http.HandlerFunc)) {
 	handle("GET /v1/projects/{project}/clusters/{cluster}/backups/{backup}", s.tenant(s.getBackup))
 	handle("DELETE /v1/projects/{project}/clusters/{cluster}/backups/{backup}", s.tenant(s.deleteBackup))
 	handle("POST /v1/projects/{project}/clusters/{cluster}/backups/{backup}/restore", s.tenant(s.restoreBackup))
+	handle("POST /v1/projects/{project}/clusters/{cluster}/backups/{backup}/verify", s.tenant(s.verifyBackup))
+	handle("GET /v1/projects/{project}/clusters/{cluster}/backups/{backup}/verifications", s.tenant(s.listVerifications))
 	// cell agent API (outbound from the cell; bearer token per cell, mTLS in the cloud)
 	handle("GET /v1/cells/{cell}/desired", s.agent(s.getDesired))
 	handle("POST /v1/cells/{cell}/observed", s.agent(s.postObserved))

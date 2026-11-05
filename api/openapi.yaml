@@ -156,6 +156,44 @@ paths:
         "400": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
+  /v1/projects/{project}/clusters/{cluster}/backups/{backup}/verify:
+    parameters: [{$ref: "#/components/parameters/project"}, {$ref: "#/components/parameters/cluster"}, {name: backup, in: path, required: true, schema: {type: string}}]
+    post:
+      summary: Verify a backup by restoring it into a scratch cluster
+      description: |
+        Restores the backup into a cluster no tenant can see, runs CHECK TABLE on every table and
+        compares row counts and content hashes with what the source held around the backup, then
+        deletes the scratch cluster. The scheduler does this for every cluster daily. The backup is
+        marked verified only if it passes. Runs one at a time per cell.
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      responses:
+        "202": {description: Started, content: {application/json: {schema: {type: object, properties: {verificationId: {type: string}, backupId: {type: string}}}}}}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/projects/{project}/clusters/{cluster}/backups/{backup}/verifications:
+    parameters: [{$ref: "#/components/parameters/project"}, {$ref: "#/components/parameters/cluster"}, {name: backup, in: path, required: true, schema: {type: string}}]
+    get:
+      summary: List the restore verifications of a backup
+      responses:
+        "200":
+          description: Verifications, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verifications:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                        state: {type: string, enum: [RUNNING, PASSED, FAILED]}
+                        scheduled: {type: boolean}
+                        detail: {type: object}
+                        createdAt: {type: string, format: date-time}
+                        finishedAt: {type: string, format: date-time}
+        "404": {$ref: "#/components/responses/Error"}
   /v1/projects/{project}/operations/{operation}:
     parameters:
       - {$ref: "#/components/parameters/project"}
