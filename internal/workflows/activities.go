@@ -32,6 +32,8 @@ type Activities struct {
 	Engines map[string]engine.Engine
 	// PollInterval for convergence waits (tests shorten it).
 	PollInterval time.Duration
+	// Backup is nil on a deployment without backup storage.
+	Backup *BackupSupport
 }
 
 func (a *Activities) engineFor(c model.Cluster) (engine.Engine, error) {

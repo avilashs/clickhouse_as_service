@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/avilashs/clickhouse_as_service/internal/model"
 	"github.com/avilashs/clickhouse_as_service/internal/store"
@@ -23,6 +25,21 @@ type Config struct {
 	CellToken    string
 	CellCapacity []store.CellCapacity
 	MaxClusters  int
+	Backup       BackupConfig
+}
+
+// BackupConfig describes the cell's backup storage and the schedules around it. Backups are off
+// unless BASALT_BACKUP_URL is set.
+type BackupConfig struct {
+	// Credentials: a static key (local fixture; stored as secrets, never in the environment of
+	// the cell agent) or STS.
+	STSEndpoint, STSRoleARN, STSRegion string
+	AccessKey, SecretKey               string        // the control plane's own identity for STS and retention
+	Interval                           time.Duration // scheduled backups per cluster (0: off)
+	FullEvery                          int           // every Nth scheduled backup is a full one
+	Retention                          time.Duration // backups older than this are deleted when nothing depends on them
+	VerifyInterval                     time.Duration // restore verification per cluster (0: off)
+	VerifySize                         string
 }
 
 func env(k, def string) string {
@@ -37,6 +54,15 @@ func envInt(k string, def int64) int64 {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+func envDuration(k string, def time.Duration) time.Duration {
+	if v := os.Getenv(k); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
 		}
 	}
 	return def
@@ -66,6 +92,43 @@ func Load() (Config, error) {
 			Pods: int(envInt("BASALT_CELL_DEDICATED_NODES", 3)),
 		}},
 		MaxClusters: int(envInt("BASALT_CELL_MAX_CLUSTERS", 50)),
+	}
+	if u := os.Getenv("BASALT_BACKUP_URL"); u != "" {
+		// BASALT_BACKUP_URL is where the servers reach the store: http(s)://host:port/bucket/
+		pu, err := url.Parse(u)
+		if err != nil || pu.Host == "" || strings.Trim(pu.Path, "/") == "" {
+			return c, fmt.Errorf("BASALT_BACKUP_URL must look like http://host:port/bucket/")
+		}
+		port, _ := strconv.Atoi(pu.Port())
+		if port == 0 {
+			port = 443
+			if pu.Scheme == "http" {
+				port = 80
+			}
+		}
+		t := &model.BackupTarget{
+			URL: strings.TrimSuffix(u, "/") + "/", Bucket: strings.Trim(pu.Path, "/"), Host: pu.Hostname(), Port: port,
+			ControlPlaneEndpoint: env("BASALT_BACKUP_CONTROL_ENDPOINT", pu.Host), Secure: pu.Scheme == "https",
+			EgressNamespace: os.Getenv("BASALT_BACKUP_EGRESS_NAMESPACE"),
+		}
+		if sel := os.Getenv("BASALT_BACKUP_EGRESS_POD_LABELS"); sel != "" {
+			t.EgressPodSelector = map[string]string{}
+			for _, kv := range strings.Split(sel, ",") {
+				k, v, _ := strings.Cut(kv, "=")
+				t.EgressPodSelector[k] = v
+			}
+		}
+		if cidrs := os.Getenv("BASALT_BACKUP_EGRESS_CIDRS"); cidrs != "" {
+			t.EgressCIDRs = strings.Split(cidrs, ",")
+		}
+		c.Cell.Backup = t
+	}
+	c.Backup = BackupConfig{
+		STSEndpoint: os.Getenv("BASALT_BACKUP_STS_ENDPOINT"), STSRoleARN: os.Getenv("BASALT_BACKUP_STS_ROLE_ARN"), STSRegion: env("BASALT_BACKUP_STS_REGION", "us-east-1"),
+		AccessKey: os.Getenv("BASALT_BACKUP_ACCESS_KEY"), SecretKey: os.Getenv("BASALT_BACKUP_SECRET_KEY"),
+		Interval: envDuration("BASALT_BACKUP_INTERVAL", 24*time.Hour), FullEvery: int(envInt("BASALT_BACKUP_FULL_EVERY", 7)),
+		Retention: envDuration("BASALT_BACKUP_RETENTION", 14*24*time.Hour), VerifyInterval: envDuration("BASALT_VERIFY_INTERVAL", 24*time.Hour),
+		VerifySize: env("BASALT_VERIFY_SIZE", "dev-1"),
 	}
 	for _, pair := range strings.Split(os.Getenv("BASALT_API_TOKENS"), ",") {
 		if pair == "" {

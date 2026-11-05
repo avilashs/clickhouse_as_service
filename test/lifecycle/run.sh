@@ -14,6 +14,6 @@ PF=$!; trap 'kill $PF 2>/dev/null' EXIT
 sleep 3
 export LIFE_API=http://127.0.0.1:8080 LIFE_GATEWAY_HTTPS=127.0.0.1:28443 LIFE_STEPS=$STEPS \
   LIFE_PROJECT_A=demo LIFE_TOKEN_A=$BASALT_TENANT_TOKEN LIFE_CLUSTER_A=$A \
-  LIFE_PROJECT_B=rival LIFE_TOKEN_B=$BASALT_TENANT2_TOKEN LIFE_CLUSTER_B=$A
+  LIFE_PROJECT_B=demo LIFE_TOKEN_B=$BASALT_TENANT_TOKEN LIFE_CLUSTER_B=$A
 LOG=${LOG:-$BASALT_HOME/logs/lifecycle-$(date +%Y%m%d-%H%M%S).log}
 go test -tags lifecycle -count=1 -v -timeout 150m -run TestLifecycleUnderLoad ./test/lifecycle/ 2>&1 | tee "$LOG"

@@ -106,10 +106,10 @@ type CellCapacity struct {
 func (s *Store) EnsureCell(ctx context.Context, c model.Cell, maxClusters int, agentTokenSHA256 string, caps []CellCapacity) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO cells (id, region, state, profile, domain, max_clusters, agent_token_sha256, sandbox_runtime)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-			ON CONFLICT (id) DO UPDATE SET region=$2, profile=$4, domain=$5, max_clusters=$6, agent_token_sha256=$7, sandbox_runtime=$8`,
-			c.ID, c.Region, c.State, c.Profile, c.Domain, maxClusters, agentTokenSHA256, c.Sandbox)
+			INSERT INTO cells (id, region, state, profile, domain, max_clusters, agent_token_sha256, sandbox_runtime, backup_target)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			ON CONFLICT (id) DO UPDATE SET region=$2, profile=$4, domain=$5, max_clusters=$6, agent_token_sha256=$7, sandbox_runtime=$8, backup_target=$9`,
+			c.ID, c.Region, c.State, c.Profile, c.Domain, maxClusters, agentTokenSHA256, c.Sandbox, backupJSON(c.Backup))
 		if err != nil {
 			return err
 		}
@@ -128,12 +128,26 @@ func (s *Store) EnsureCell(ctx context.Context, c model.Cell, maxClusters int, a
 func (s *Store) GetCell(ctx context.Context, id string) (model.Cell, string, error) {
 	var c model.Cell
 	var tokenHash string
-	err := s.pool.QueryRow(ctx, `SELECT id, region, state, profile, domain, ca_pem, agent_token_sha256, sandbox_runtime FROM cells WHERE id=$1`, id).
-		Scan(&c.ID, &c.Region, &c.State, &c.Profile, &c.Domain, &c.CAPEM, &tokenHash, &c.Sandbox)
+	var bt []byte
+	err := s.pool.QueryRow(ctx, `SELECT id, region, state, profile, domain, ca_pem, agent_token_sha256, sandbox_runtime, backup_target FROM cells WHERE id=$1`, id).
+		Scan(&c.ID, &c.Region, &c.State, &c.Profile, &c.Domain, &c.CAPEM, &tokenHash, &c.Sandbox, &bt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, "", ErrNotFound
 	}
+	if err == nil && len(bt) > 0 && string(bt) != "null" {
+		c.Backup = &model.BackupTarget{}
+		err = json.Unmarshal(bt, c.Backup)
+	}
 	return c, tokenHash, err
+}
+
+// backupJSON is the jsonb value of a cell's backup target (SQL NULL when there is none).
+func backupJSON(b *model.BackupTarget) any {
+	if b == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(b)
+	return raw
 }
 
 // PickCell chooses an ACTIVE cell with room for one more cluster. M1 has one cell; this is
@@ -168,6 +182,8 @@ type CreateClusterRequest struct {
 	Operation      model.Operation
 	IdempotencyKey string
 	RequestHash    string
+	// Params are stored with the operation (restore: which backup to restore into the new cluster).
+	Params map[string]string
 }
 
 // CreateCluster inserts cluster, spec v1, operation and idempotency key in one transaction.
@@ -196,6 +212,11 @@ func (s *Store) CreateCluster(ctx context.Context, r CreateClusterRequest) (mode
 		}
 		if err := insertOperation(ctx, tx, r.Operation, r.IdempotencyKey, r.RequestHash); err != nil {
 			return err
+		}
+		if len(r.Params) > 0 {
+			if _, err := tx.Exec(ctx, `UPDATE operations SET params=$2 WHERE id=$1`, r.Operation.ID, mustJSON(r.Params)); err != nil {
+				return err
+			}
 		}
 		out, created = r.Operation, true
 		return nil

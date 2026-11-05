@@ -96,6 +96,66 @@ paths:
                 type: object
                 properties: {username: {type: string}, password: {type: string}}
         "409": {$ref: "#/components/responses/Error"}
+  /v1/projects/{project}/clusters/{cluster}/backups:
+    parameters: [{$ref: "#/components/parameters/project"}, {$ref: "#/components/parameters/cluster"}]
+    post:
+      summary: Back up the cluster's databases now
+      description: |
+        A native BACKUP of every database (tables, views, functions), written to the cell's object
+        store under a prefix only this backup's credentials can reach. Users and grants are not
+        backed up; Basalt owns them. The cluster keeps serving; no other operation can run on it
+        meanwhile. Kind INCREMENTAL stores only what changed since the base backup. Backups are also
+        taken on a schedule and verified by restoring them (docs/m5-report.md).
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      requestBody:
+        content: {application/json: {schema: {$ref: "#/components/schemas/CreateBackupRequest"}}}
+      responses:
+        "202": {$ref: "#/components/responses/Accepted"}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+    get:
+      summary: List the cluster's backups
+      responses:
+        "200":
+          description: Backups, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {backups: {type: array, items: {$ref: "#/components/schemas/Backup"}}}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/projects/{project}/clusters/{cluster}/backups/{backup}:
+    parameters: [{$ref: "#/components/parameters/project"}, {$ref: "#/components/parameters/cluster"}, {name: backup, in: path, required: true, schema: {type: string}}]
+    get:
+      summary: Get a backup
+      responses:
+        "200": {description: Backup, content: {application/json: {schema: {$ref: "#/components/schemas/Backup"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+    delete:
+      summary: Delete a backup
+      description: A backup that later incremental backups are built on cannot be deleted before them.
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      responses:
+        "202": {description: Marked for deletion, content: {application/json: {schema: {$ref: "#/components/schemas/Backup"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/projects/{project}/clusters/{cluster}/backups/{backup}/restore:
+    parameters: [{$ref: "#/components/parameters/project"}, {$ref: "#/components/parameters/cluster"}, {name: backup, in: path, required: true, schema: {type: string}}]
+    post:
+      summary: Restore a backup into a new cluster
+      description: |
+        Always into a new cluster, never over an existing one. The new cluster has the source's
+        spec (the size may be changed within the tier); it is ACTIVE when the data is restored.
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/RestoreRequest"}}}
+      responses:
+        "202": {$ref: "#/components/responses/Accepted"}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
   /v1/projects/{project}/operations/{operation}:
     parameters:
       - {$ref: "#/components/parameters/project"}
@@ -147,6 +207,36 @@ components:
         storageGiB: {type: integer, minimum: 1, description: "Grow only; not on local cells"}
         version: {type: string, description: "A newer version from GET /v1/versions"}
         finalizeUpgrade: {type: boolean, description: "Lift the compatibility pin set by an upgrade across minor versions"}
+    CreateBackupRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        kind: {type: string, enum: [FULL, INCREMENTAL], default: FULL}
+        baseBackupId: {type: string, description: "INCREMENTAL only; default: the newest completed backup"}
+    RestoreRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string}
+        size: {type: string, description: "Default: the source cluster's size"}
+    Backup:
+      type: object
+      properties:
+        id: {type: string}
+        clusterId: {type: string}
+        projectId: {type: string}
+        cellId: {type: string}
+        kind: {type: string, enum: [FULL, INCREMENTAL]}
+        baseBackupId: {type: string}
+        state: {type: string, enum: [RUNNING, COMPLETED, FAILED, DELETING, DELETED]}
+        scheduled: {type: boolean}
+        sizeBytes: {type: integer}
+        error: {type: string}
+        createdAt: {type: string, format: date-time}
+        finishedAt: {type: string, format: date-time}
+        verifiedAt: {type: string, format: date-time}
+        verified: {type: boolean, description: "True once a restore of this backup into a scratch cluster passed"}
     ClusterSpec:
       type: object
       properties:

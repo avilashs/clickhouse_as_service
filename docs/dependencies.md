@@ -27,6 +27,8 @@ Every third-party dependency must have a licence compatible with Apache-2.0 **an
 | kind | Local clusters | Apache-2.0 | – | |
 | OpenTofu | Cell provisioning | MPL-2.0 | – | Tool only, not linked |
 | clickhouse-backup | Evaluated, not used | MIT | – | ADR-0006 |
+| minio-go (`github.com/minio/minio-go/v7`) | Object-store client in the control plane: STS AssumeRole for per-backup credentials, listing and deleting a backup's objects (retention). Backup data never passes through it. | Apache-2.0 | – | ADR-0006. The library is used, not the MinIO server. The STS path is unit-tested for the session policy it builds but **not exercised against a live STS** (the fixture store has none). |
+| Garage (`dxflrs/garage:v2.5.0`) | S3-compatible object store, **test fixture only** on the local kind cell, run unmodified as a separate service | **AGPL-3.0** | – | Not linked, not modified, not shipped to tenants. Chosen because MinIO's images are no longer published and SeaweedFS's image is 1 GB. A real cell uses its cloud's object store. |
 | query_optimizer (`avilashs/query_optimizer@0d86d10`) | AI query advisor, run as a CronJob | MIT (declared in `pyproject.toml`; **no LICENSE file**, Q2b) | – | ADR-0008 |
 | pydantic, PyYAML | optimizer dependencies | MIT | – | |
 | requests | optimizer dependency | Apache-2.0 | – | |

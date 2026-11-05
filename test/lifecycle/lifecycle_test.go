@@ -126,6 +126,9 @@ func TestLifecycleUnderLoad(t *testing.T) {
 			time.Sleep(30 * time.Second) // keep the load on while the cluster settles
 			w := v.Between(t0, t1)
 			t.Logf("%s took %v; during it: %s", st.name, t1.Sub(t0).Round(time.Second), w)
+			for code, m := range w.FirstMsg {
+				t.Logf("  example of error code %d: %s", code, m)
+			}
 			after := v.Between(t1, time.Now())
 			t.Logf("30 s after it: %s", after)
 			if state != "SUCCEEDED" {

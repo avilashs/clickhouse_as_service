@@ -12,6 +12,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
+	"github.com/avilashs/clickhouse_as_service/internal/backup"
 	"github.com/avilashs/clickhouse_as_service/internal/config"
 	"github.com/avilashs/clickhouse_as_service/internal/engine"
 	"github.com/avilashs/clickhouse_as_service/internal/engine/clickhouse"
@@ -19,6 +20,13 @@ import (
 	"github.com/avilashs/clickhouse_as_service/internal/store"
 	"github.com/avilashs/clickhouse_as_service/internal/workflows"
 )
+
+func envDuration(k string, def time.Duration) time.Duration {
+	if d, err := time.ParseDuration(os.Getenv(k)); err == nil {
+		return d
+	}
+	return def
+}
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -54,11 +62,38 @@ func run(log *slog.Logger) error {
 	defer tc.Close()
 
 	acts := &workflows.Activities{Store: st, Secrets: sec, Engines: map[string]engine.Engine{"clickhouse": clickhouse.Engine{}}}
+	var objs backup.Objects
+	if t := cfg.Cell.Backup; t != nil {
+		bc := cfg.Backup
+		var prov backup.Provider = backup.Static{} // the key itself lives in the secret store (workflows.BackupAccessKeySecret)
+		if bc.STSEndpoint != "" {
+			prov = backup.STS{Endpoint: bc.STSEndpoint, AccessKey: bc.AccessKey, SecretKey: bc.SecretKey, RoleARN: bc.STSRoleARN, Region: bc.STSRegion, Bucket: t.Bucket}
+		}
+		if bc.AccessKey != "" {
+			o, err := backup.NewS3(t.ControlPlaneEndpoint, t.Secure, bc.AccessKey, bc.SecretKey, t.Bucket)
+			if err != nil {
+				return err
+			}
+			objs = o
+		} else {
+			log.Warn("BASALT_BACKUP_ACCESS_KEY is not set: backup sizes are not recorded and retention cannot delete objects")
+		}
+		acts.Backup = &workflows.BackupSupport{Provider: prov, Objects: objs, Temporal: tc, VerifySize: bc.VerifySize}
+	}
 	w := worker.New(tc, workflows.TaskQueue, worker.Options{})
 	w.RegisterWorkflow(workflows.CreateCluster)
 	w.RegisterWorkflow(workflows.DeleteCluster)
+	w.RegisterWorkflow(workflows.UpdateCluster)
+	w.RegisterWorkflow(workflows.BackupCluster)
+	w.RegisterWorkflow(workflows.RestoreCluster)
+	w.RegisterWorkflow(workflows.VerifyBackup)
 	w.RegisterActivity(acts)
 
+	if acts.Backup != nil {
+		bc := cfg.Backup
+		go workflows.RunScheduler(ctx, log, st, tc, objs, workflows.Schedule{Interval: bc.Interval, FullEvery: bc.FullEvery,
+			Retention: bc.Retention, VerifyInterval: bc.VerifyInterval, Tick: envDuration("BASALT_SCHEDULER_TICK", 30*time.Second)})
+	}
 	go sweep(ctx, log, st, tc)
 	go healthSync(ctx, log, st, acts.Engines)
 	log.Info("worker started", "taskQueue", workflows.TaskQueue)

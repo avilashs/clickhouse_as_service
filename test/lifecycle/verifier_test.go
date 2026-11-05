@@ -177,6 +177,7 @@ type Window struct {
 	LongestWriteGap                                       time.Duration // longest time with no acknowledgement
 	ReadP50, ReadP99                                      time.Duration
 	Codes                                                 map[int]int
+	FirstMsg                                              map[int]string // an example message per error code
 }
 
 func (w Window) String() string {
@@ -188,7 +189,7 @@ func (w Window) String() string {
 func (v *Verifier) Between(from, to time.Time) Window {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	w := Window{Codes: map[int]int{}}
+	w := Window{Codes: map[int]int{}, FirstMsg: map[int]string{}}
 	var acks []time.Time
 	for _, at := range v.acked {
 		if !at.Before(from) && at.Before(to) {
@@ -211,6 +212,9 @@ func (v *Verifier) Between(from, to time.Time) Window {
 		if !f.at.Before(from) && f.at.Before(to) {
 			w.FailedAttempts++
 			w.Codes[f.code]++
+			if _, ok := w.FirstMsg[f.code]; !ok {
+				w.FirstMsg[f.code] = f.msg
+			}
 		}
 	}
 	var lat latencies

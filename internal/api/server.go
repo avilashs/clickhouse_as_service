@@ -73,6 +73,11 @@ func (s *Server) register(handle func(pattern string, h http.HandlerFunc)) {
 	handle("DELETE /v1/projects/{project}/clusters/{cluster}", s.tenant(s.deleteCluster))
 	handle("GET /v1/projects/{project}/clusters/{cluster}/initialCredentials", s.tenant(s.initialCredentials))
 	handle("GET /v1/projects/{project}/operations/{operation}", s.tenant(s.getOperation))
+	handle("POST /v1/projects/{project}/clusters/{cluster}/backups", s.tenant(s.createBackup))
+	handle("GET /v1/projects/{project}/clusters/{cluster}/backups", s.tenant(s.listBackups))
+	handle("GET /v1/projects/{project}/clusters/{cluster}/backups/{backup}", s.tenant(s.getBackup))
+	handle("DELETE /v1/projects/{project}/clusters/{cluster}/backups/{backup}", s.tenant(s.deleteBackup))
+	handle("POST /v1/projects/{project}/clusters/{cluster}/backups/{backup}/restore", s.tenant(s.restoreBackup))
 	// cell agent API (outbound from the cell; bearer token per cell, mTLS in the cloud)
 	handle("GET /v1/cells/{cell}/desired", s.agent(s.getDesired))
 	handle("POST /v1/cells/{cell}/observed", s.agent(s.postObserved))
@@ -380,6 +385,24 @@ func (s *Server) listSizes(w http.ResponseWriter, _ *http.Request) {
 type DesiredResponse struct {
 	Generation int64          `json:"generation"`
 	Clusters   []DesiredEntry `json:"clusters"`
+	Jobs       []JobEntry     `json:"jobs,omitempty"`
+}
+
+// JobEntry is one backup or restore job for the agent to run against a cluster's servers. It is
+// served beside the desired state but is not part of it.
+type JobEntry struct {
+	ID        string        `json:"id"`
+	ClusterID string        `json:"clusterId"`
+	Spec      model.JobSpec `json:"spec"`
+	State     string        `json:"state"` // the control plane's view: PENDING | RUNNING | SUCCEEDED | FAILED
+}
+
+// JobReport is what the agent says about a job.
+type JobReport struct {
+	ID      string          `json:"id"`
+	State   string          `json:"state"`
+	Message string          `json:"message,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
 }
 
 type DesiredEntry struct {
@@ -416,6 +439,33 @@ func (s *Server) getDesired(w http.ResponseWriter, r *http.Request, cell model.C
 		}
 		resp.Clusters = append(resp.Clusters, DesiredEntry{ClusterID: row.ClusterID, Generation: row.Generation, Hash: row.Hash, Tombstone: row.Tombstone, Desired: d})
 	}
+	jobs, err := s.Store.JobsForCell(r.Context(), cell.ID)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	for _, j := range jobs {
+		if j.State == "SUCCEEDED" || j.State == "FAILED" {
+			continue // nothing left to do; the workflow collects the result from the store
+		}
+		resolved, err := engine.ResolveSecrets(string(j.Spec), func(name string) (string, error) {
+			v, err := s.Secrets.Get(r.Context(), name)
+			if err == nil && strings.ContainsAny(v, "\"\\") {
+				return "", fmt.Errorf("secret %s contains characters unsafe for JSON", name)
+			}
+			return v, err
+		})
+		if err != nil {
+			s.Log.Error("cannot resolve secrets of a job", "job", j.ID, "err", err)
+			continue
+		}
+		var spec model.JobSpec
+		if err := json.Unmarshal([]byte(resolved), &spec); err != nil {
+			s.Log.Error("bad job spec", "job", j.ID, "err", err)
+			continue
+		}
+		resp.Jobs = append(resp.Jobs, JobEntry{ID: j.ID, ClusterID: j.ClusterID, Spec: spec, State: j.State})
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, resp)
 }
@@ -423,6 +473,7 @@ func (s *Server) getDesired(w http.ResponseWriter, r *http.Request, cell model.C
 type ObservedRequest struct {
 	CAPEM    string            `json:"caPem"`
 	Clusters []engine.Observed `json:"clusters"`
+	Jobs     []JobReport       `json:"jobs,omitempty"`
 }
 
 func (s *Server) postObserved(w http.ResponseWriter, r *http.Request, cell model.Cell) {
@@ -434,6 +485,15 @@ func (s *Server) postObserved(w http.ResponseWriter, r *http.Request, cell model
 	if err := s.Store.RecordObserved(r.Context(), cell.ID, req.Clusters); err != nil {
 		s.storeErr(w, err)
 		return
+	}
+	for _, j := range req.Jobs {
+		if j.State != "RUNNING" && j.State != "SUCCEEDED" && j.State != "FAILED" {
+			continue
+		}
+		if err := s.Store.RecordJobStatus(r.Context(), cell.ID, j.ID, j.State, truncateStr(j.Message, 2000), j.Result); err != nil {
+			s.storeErr(w, err)
+			return
+		}
 	}
 	if err := s.Store.TouchAgent(r.Context(), cell.ID, req.CAPEM); err != nil {
 		s.storeErr(w, err)
@@ -547,4 +607,11 @@ func (s *Server) updateCluster(w http.ResponseWriter, r *http.Request, project s
 		_ = s.Store.Audit(r.Context(), "project:"+project, "cluster.update", id, op.ID, map[string]any{"size": next.Size, "version": next.ServerVersion, "replicas": next.ReplicasPerShard})
 	}
 	s.startAndRespond(w, r, op)
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }

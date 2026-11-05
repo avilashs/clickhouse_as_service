@@ -163,7 +163,7 @@ func (e Engine) Render(in engine.RenderInput) (engine.Desired, error) {
 	}
 
 	objs := []engine.Object{namespace(n, c), usersSecretObj(n)}
-	objs = append(objs, networkPolicies(n)...)
+	objs = append(objs, networkPolicies(n, in.Cell)...)
 	objs = append(objs, keeper(n, size, c.Spec.KeeperImageVersion()), server(n, c, size, in.Cell))
 	for s := 0; s < c.Spec.Shards; s++ {
 		objs = append(objs, podDisruptionBudget(n, s))
@@ -586,7 +586,7 @@ func serverSettings(n names, c model.Cluster, size model.Size, cell model.Cell) 
 		// sources, which ClickHouse does not check against READ ON <source> grants (attack
 		// S17g). A section with an entry allows only that entry; ".invalid" never resolves
 		// (RFC 2606). Opt-in egress (design §9.3) will add the customer's hosts here.
-		"remote_url_allow_hosts/host": denyAllHost,
+		"remote_url_allow_hosts/host": remoteHost(cell),
 		// executable() and executable UDFs read scripts from here: a directory that does not
 		// exist and that nothing can create (read-only image paths, no volume)
 		"user_scripts_path": "/nonexistent/basalt-no-user-scripts/",
@@ -619,6 +619,16 @@ const (
 
 // denyAllHost is the single remote_url_allow_hosts entry: a name that cannot exist.
 const denyAllHost = "basalt-no-egress.invalid"
+
+// remoteHost is the one host SQL functions may dial: none, unless the cell has a backup target,
+// which the servers' own BACKUP and RESTORE need. The network policy lets pods reach nothing but
+// that target, and tenants have no grant on the S3 functions or on the backup credentials.
+func remoteHost(cell model.Cell) string {
+	if cell.Backup != nil && cell.Backup.Host != "" {
+		return cell.Backup.Host
+	}
+	return denyAllHost
+}
 
 // waitForKeeperScript blocks until the Keeper client Service has a ready endpoint. A server with
 // replicated access storage exits with code 231 when Keeper is unreachable at startup (M1

@@ -1,0 +1,57 @@
+# Test fixture (M5): an S3-compatible object store for backups on the local kind cell.
+# Garage (AGPLv3, https://garagehq.deuxfleurs.fr) is run unmodified as a separate service; it was
+# chosen because MinIO's images are no longer published, SeaweedFS's is 1 GB (this machine has
+# less disk free than that), and Garage's is 25 MB. A real cell uses its cloud's object store
+# (docs/dependencies.md). The store has no STS, so the fixture uses one long-lived key, kept in the
+# control plane's secret store and handed to the servers only inside a job's named collection.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: backup-store-config, namespace: basalt-system}
+data:
+  garage.toml: |
+    metadata_dir = "/data/meta"
+    data_dir = "/data/blocks"
+    db_engine = "sqlite"
+    replication_factor = 1
+    rpc_bind_addr = "127.0.0.1:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+    rpc_secret = "0000000000000000000000000000000000000000000000000000000000000001"
+    [s3_api]
+    s3_region = "garage"
+    api_bind_addr = "0.0.0.0:3900"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: backup-store, namespace: basalt-system}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: backup-store}}
+  template:
+    metadata: {labels: {app: backup-store}}
+    spec:
+      nodeSelector: {basalt.io/pool: control, kubernetes.io/hostname: basalt-cell1-worker3}
+      tolerations: [{key: basalt.io/pool, operator: Equal, value: control, effect: NoSchedule}]
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: garage
+        image: dxflrs/garage:v2.5.0
+        imagePullPolicy: IfNotPresent
+        command: ["/garage", "-c", "/etc/garage/garage.toml", "server"]
+        ports: [{name: s3, containerPort: 3900}]
+        resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 256Mi}}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: config, mountPath: /etc/garage}
+        - {name: data, mountPath: /data}
+      volumes:
+      - {name: config, configMap: {name: backup-store-config}}
+      - {name: data, emptyDir: {sizeLimit: 600Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: backup-store, namespace: basalt-system}
+spec:
+  selector: {app: backup-store}
+  ports: [{name: s3, port: 3900, targetPort: 3900}]

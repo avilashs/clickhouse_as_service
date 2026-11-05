@@ -152,6 +152,10 @@ func WorkflowFor(kind model.OperationKind) (any, error) {
 		return DeleteCluster, nil
 	case model.OpUpdateCluster:
 		return UpdateCluster, nil
+	case model.OpBackupCluster:
+		return BackupCluster, nil
+	case model.OpRestoreCluster:
+		return RestoreCluster, nil
 	}
 	return nil, fmt.Errorf("no workflow for %s", kind)
 }

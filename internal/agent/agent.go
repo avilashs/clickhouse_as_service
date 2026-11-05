@@ -71,6 +71,10 @@ type Agent struct {
 	ca          *CA
 	certMu      sync.Mutex
 	clientCerts map[string]tls.Certificate
+	lastSync    map[string]time.Time // per cluster: when the schema sync last ran (see schemasync.go)
+
+	jobMu sync.Mutex
+	jobs  map[string]*jobState // by job id (see jobs.go)
 }
 
 // Run loops until ctx is done.
@@ -93,7 +97,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		for _, d := range last {
 			reports = append(reports, a.reconcile(ctx, d))
 		}
-		if err := a.postObserved(ctx, reports); err != nil {
+		var jobReports []api.JobReport
+		if err == nil {
+			jobReports = a.runJobs(ctx, desired.Jobs, last)
+		} else {
+			jobReports = a.runJobs(ctx, nil, last)
+		}
+		if err := a.postObserved(ctx, reports, jobReports); err != nil {
 			a.Log.Warn("report failed", "err", err)
 		}
 		select {
@@ -140,9 +150,9 @@ func (a *Agent) fetchDesired(ctx context.Context) (api.DesiredResponse, error) {
 	return r, err
 }
 
-func (a *Agent) postObserved(ctx context.Context, reports []engine.Observed) error {
+func (a *Agent) postObserved(ctx context.Context, reports []engine.Observed, jobs []api.JobReport) error {
 	return a.do(ctx, http.MethodPost, "/v1/cells/"+a.CellID+"/observed",
-		api.ObservedRequest{CAPEM: string(a.ca.CertPEM), Clusters: reports}, nil)
+		api.ObservedRequest{CAPEM: string(a.ca.CertPEM), Clusters: reports, Jobs: jobs}, nil)
 }
 
 // reconcile converges one cluster and returns what it observed.
@@ -228,6 +238,11 @@ func (a *Agent) reconcile(ctx context.Context, e api.DesiredEntry) engine.Observ
 		allOK := len(obs.Probes) == e.Desired.Expect.ServerHosts
 		for _, p := range obs.Probes {
 			allOK = allOK && p.OK && p.KeeperOK && p.ClusterHosts == e.Desired.Expect.ServerHosts
+		}
+		// A replica that has just joined needs the tenant's schema (see schemasync.go).
+		if allOK && obs.AppliedHash == e.Hash && time.Since(a.lastSync[e.ClusterID]) > syncEvery {
+			a.setLastSync(e.ClusterID)
+			a.syncNewReplicas(ctx, e.Desired, log)
 		}
 		// Bootstrap needs every replica up and Keeper reachable, because users and roles live
 		// in replicated access storage.
@@ -391,6 +406,15 @@ func (a *Agent) observeObjects(ctx context.Context, e api.DesiredEntry, obs *eng
 }
 
 // clientCert returns a cached client certificate for cn, re-minted a week before expiry.
+func (a *Agent) setLastSync(cluster string) {
+	a.certMu.Lock()
+	defer a.certMu.Unlock()
+	if a.lastSync == nil {
+		a.lastSync = map[string]time.Time{}
+	}
+	a.lastSync[cluster] = time.Now()
+}
+
 func (a *Agent) clientCert(cn string) (tls.Certificate, error) {
 	a.certMu.Lock()
 	defer a.certMu.Unlock()
@@ -409,6 +433,11 @@ func (a *Agent) clientCert(cn string) (tls.Certificate, error) {
 }
 
 func (a *Agent) conn(d engine.Desired, host string) (clickhouse.Conn, error) {
+	return a.connRead(d, host, 20*time.Second)
+}
+
+// connRead is conn with a longer read timeout, for jobs whose queries run for minutes.
+func (a *Agent) connRead(d engine.Desired, host string, read time.Duration) (clickhouse.Conn, error) {
 	tc := &tls.Config{RootCAs: a.ca.Pool(), ServerName: host, MinVersion: tls.VersionTLS12}
 	if d.SQL.ClientCertificateCN != "" {
 		c, err := a.clientCert(d.SQL.ClientCertificateCN)
@@ -421,7 +450,7 @@ func (a *Agent) conn(d engine.Desired, host string) (clickhouse.Conn, error) {
 		Addr:        []string{fmt.Sprintf("%s:%d", host, d.SQL.Port)},
 		Auth:        clickhouse.Auth{Database: "default", Username: d.SQL.User, Password: d.SQL.PasswordRef},
 		TLS:         tc,
-		DialTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second,
+		DialTimeout: 5 * time.Second, ReadTimeout: read,
 	})
 }
 

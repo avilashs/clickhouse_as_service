@@ -148,6 +148,10 @@ var Sizes = map[string]Size{
 	// Local-only sizes for the M5 lifecycle tests. A shared-tier size fixes the replica count, so
 	// "t-3r" is the same pod as "t-2" with a third replica (add replica), and "t-4r" is the same
 	// replica count with bigger pods (vertical scale).
+	// "t-1" is the single-replica size restore verification uses on the local cell.
+	"t-1": {Name: "t-1", Tier: TierShared, CPU: "1", MilliCPU: 1000, Memory: "2Gi", MemoryBytes: 2 * gib,
+		Replicas: 1, MaxThreads: 2, MaxConcurrent: 20, DefaultStorage: 5, MaxStorage: 20, HA: false, LocalOnly: true,
+		KeeperReplicas: 1, KeeperCPURequest: "100m", KeeperCPULimit: "500m", KeeperMemory: "256Mi"},
 	"t-3r": {Name: "t-3r", Tier: TierShared, CPU: "1", MilliCPU: 1000, Memory: "2Gi", MemoryBytes: 2 * gib,
 		Replicas: 3, MaxThreads: 2, MaxConcurrent: 20, DefaultStorage: 5, MaxStorage: 20, HA: true, LocalOnly: true,
 		KeeperReplicas: 3, KeeperCPURequest: "100m", KeeperCPULimit: "500m", KeeperMemory: "256Mi"},
@@ -174,6 +178,8 @@ type Cell struct {
 	CAPEM   string `json:"caPem,omitempty"`
 	// Sandbox is the RuntimeClass shared-tier servers must use ("" = none; ADR-0003).
 	Sandbox string `json:"sandbox,omitempty"`
+	// Backup is where this cell keeps backups (nil: backups are not offered).
+	Backup *BackupTarget `json:"backup,omitempty"`
 }
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
