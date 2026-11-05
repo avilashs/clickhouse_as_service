@@ -45,6 +45,14 @@ Each cluster starts with one user, `admin`, holding the role `customer_admin`. I
 - **Shared tier.** Your TLS session ends inside your own server pod. The shared gateway routes by SNI and never sees plaintext.
 - **At rest.** Encrypted volumes (EBS with KMS) in cloud cells. Local kind cells have no encryption at rest.
 
+## Backups, restores and upgrades
+
+- **What is backed up.** Your databases (tables, views, functions), natively, to the cell's object store, on demand or on a schedule (`POST …/backups`). Users, roles and grants are not part of a backup; the platform owns them. A restored cluster has its own credentials.
+- **Who can touch the store.** Only the platform. The credentials for one backup exist on the server only for the length of the job, in a named collection that `customer_admin` cannot see, create or use; you hold no grant on `BACKUP`, `RESTORE`, `s3()`, `url()` or named collections. Server pods can reach the object store and nothing else outside the cluster; Keeper pods cannot reach it. The bucket refuses unsigned requests.
+- **Restore** is always into a new cluster. It never overwrites an existing one.
+- **A backup is "verified" only when a test restore passed.** The platform restores it into a scratch cluster no tenant can see, checks every table and compares row counts and content hashes with what the source held; a backup that fails (for example because an object in the store was damaged) is not marked verified.
+- **Upgrades and scaling are rolling** and keep the cluster serving. Writes you want to survive a rolling restart need `insert_quorum = 'auto'` (see the M5 report): with ClickHouse's default of 0, an insert acknowledged by one replica can be lost if that replica's disk is lost before the other fetches the part.
+
 ## Shared tier vs dedicated tier
 
 - **Shared tier.** Your servers run on nodes shared with other tenants, inside a gVisor sandbox. A process escape from ClickHouse lands in the sandbox, not on the node.

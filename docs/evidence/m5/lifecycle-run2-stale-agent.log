@@ -1,0 +1,17 @@
+=== RUN   TestLifecycleUnderLoad
+    lifecycle_test.go:105: baseline (insert_quorum=auto): 73 batches acked, 0 failed attempts map[], longest gap between acks 2.6s; 110 reads (0 failed, 0 torn), p50 580ms p99 969ms
+=== RUN   TestLifecycleUnderLoad/add_replica_(t-2_->_t-3r)
+    lifecycle_test.go:123: operation oaansqye3prb started
+    lifecycle_test.go:128: add replica (t-2 -> t-3r) took 3m16s; during it: 222 batches acked, 4 failed attempts map[243:4], longest gap between acks 5.2s; 248 reads (0 failed, 0 torn), p50 1.103s p99 3.521s
+    lifecycle_test.go:130: 30 s after it: 36 batches acked, 0 failed attempts map[], longest gap between acks 2.2s; 35 reads (0 failed, 0 torn), p50 1.53s p99 2.653s
+=== RUN   TestLifecycleUnderLoad/upgrade_server_26.8.34.13_->_26.8.36.3
+    lifecycle_test.go:123: operation oixj3wrnguh7 started
+    lifecycle_test.go:128: upgrade server 26.8.34.13 -> 26.8.36.3 took 9m1s; during it: 478 batches acked, 8 failed attempts map[0:2 394:6], longest gap between acks 4.5s; 473 reads (1 failed, 0 torn), p50 1.909s p99 4.574s
+    lifecycle_test.go:130: 30 s after it: 22 batches acked, 0 failed attempts map[], longest gap between acks 2.4s; 17 reads (0 failed, 0 torn), p50 3.127s p99 4.864s
+=== RUN   TestLifecycleUnderLoad/vertical_scale_(t-3r_->_t-4r)
+    lifecycle_test.go:123: operation ofs5ygv5zmnt started
+    lifecycle_test.go:128: vertical scale (t-3r -> t-4r) took 16m37s; during it: 893 batches acked, 7 failed attempts map[0:2 394:5], longest gap between acks 9.3s; 592 reads (4 failed, 0 torn), p50 3.06s p99 5.714s
+    lifecycle_test.go:130: 30 s after it: 21 batches acked, 0 failed attempts map[], longest gap between acks 3.9s; 14 reads (0 failed, 0 torn), p50 4.311s p99 5.535s
+=== NAME  TestLifecycleUnderLoad
+    lifecycle_test.go:166: whole run: 1891 batches acked, 19 failed attempts map[0:4 243:4 394:11], longest gap between acks 2562047h47m16.854775807s; 1605 reads (5 failed, 0 torn), p50 2.185s p99 5.477s
+    lifecycle_test.go:167: ledger: 1891 batches acknowledged out of 1891 attempted, 2000 rows per batch

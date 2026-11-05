@@ -718,8 +718,8 @@ See [ADR-0006](adr/0006-backup.md). Summary:
   1. mints STS credentials (`AssumeRole`, duration ≈ backup timeout, **session policy scoped
      to that cluster's prefix**);
   2. writes them into a provider-only named collection
-     (`CREATE OR REPLACE NAMED COLLECTION basalt_backup AS url=…, access_key_id=…, secret_access_key=…, session_token=…`);
-  3. runs `BACKUP … TO S3(basalt_backup, '<id>')`;
+     (`CREATE NAMED COLLECTION basalt_job_<id> AS url=…, access_key_id=…, secret_access_key=…, session_token=…`; `CREATE OR REPLACE` is not valid for named collections, and one collection per job and per base backup, see ADR-0006 revision 3);
+  3. runs `BACKUP DATABASE … TO S3(basalt_job_<id>)`;
   4. drops the collection.
 
   Tested on 26.8: the session token is sent (`x-amz-security-token`). Tenants can't use the
@@ -776,7 +776,13 @@ All of these are workflows built from `PlanChange` steps with gates.
    `insert_quorum_timeout` large enough, with `async_insert = 0` or `wait_for_async_insert = 1`.
    With the ClickHouse default `insert_quorum = 0`, an insert acked by one replica can be
    lost if that replica's disk is lost before the fetch. The verifier uses quorum inserts
-   and checks every acked batch ID.
+   and checks every acked batch ID. **Implemented and measured in M5 (docs/m5-report.md).**
+   With 2 replicas `auto` means both, so writes pause while one restarts (the clients
+   retry); with 3 replicas a restart of one does not stop writes. The platform default stays
+   `insert_quorum = 0` and clients opt in; changing the default is a product decision, see
+   the M5 report. **A replica added later does not get the tenant's tables from the operator
+   in a `default` database of engine Atomic (M5 finding): the cell agent copies the schema
+   to a freshly started replica (`internal/agent/schemasync.go`).**
 7. **Tier migration (shared → dedicated).** Add replicas on dedicated nodes (runc) to the
    same shard, sync, flip `serving` labels, then remove the shared (gVisor) replicas. Data
    format is identical across runtimes; the difference is only in the kernel interface. Risks:

@@ -1,0 +1,30 @@
+=== RUN   TestLifecycleUnderLoad
+    lifecycle_test.go:105: baseline (insert_quorum=auto): 36 batches acked, 0 failed attempts map[], longest gap between acks 2.6s; 71 reads (0 failed, 0 torn), p50 947ms p99 1.943s
+=== RUN   TestLifecycleUnderLoad/add_replica_(t-2_->_t-3r)
+    lifecycle_test.go:123: operation ohwewgsf64rw started
+    lifecycle_test.go:128: add replica (t-2 -> t-3r) took 4m31s; during it: 112 batches acked, 0 failed attempts map[], longest gap between acks 7.6s; 227 reads (0 failed, 0 torn), p50 1.919s p99 6.148s
+    lifecycle_test.go:133: 30 s after it: 8 batches acked, 0 failed attempts map[], longest gap between acks 8.8s; 19 reads (0 failed, 0 torn), p50 2.065s p99 5.823s
+=== RUN   TestLifecycleUnderLoad/upgrade_server_26.8.34.13_->_26.8.36.3
+    lifecycle_test.go:123: operation oyvr7eszptow started
+    lifecycle_test.go:128: upgrade server 26.8.34.13 -> 26.8.36.3 took 23m54s; during it: 354 batches acked, 11 failed attempts map[0:4 394:7], longest gap between acks 48.7s; 795 reads (4 failed, 0 torn), p50 2.933s p99 8.402s
+    lifecycle_test.go:130:   example of error code 0: Post "https://cphmgay6sgxb.cell1.db.example.com/?async_insert=0&default_format=TSV&insert_quorum=auto&insert_quorum_parallel=1&insert_quorum_timeout=120000": http: server closed idle connection
+    lifecycle_test.go:130:   example of error code 394: Code: 394. DB::Exception: Query was cancelled. (QUERY_WAS_CANCELLED) (version 26.8.34.13 (official build))
+    lifecycle_test.go:133: 30 s after it: 9 batches acked, 0 failed attempts map[], longest gap between acks 7.4s; 15 reads (0 failed, 0 torn), p50 3.572s p99 4.078s
+=== RUN   TestLifecycleUnderLoad/vertical_scale_(t-3r_->_t-4r)
+    lifecycle_test.go:123: operation omeqfhe7x2dw started
+    lifecycle_test.go:128: vertical scale (t-3r -> t-4r) took 23m18s; during it: 521 batches acked, 4 failed attempts map[0:1 394:3], longest gap between acks 10.6s; 615 reads (7 failed, 0 torn), p50 3.96s p99 9.801s
+    lifecycle_test.go:130:   example of error code 394: Code: 394. DB::Exception: Query was cancelled. (QUERY_WAS_CANCELLED) (version 26.8.36.3 (official build))
+    lifecycle_test.go:130:   example of error code 0: Post "https://cphmgay6sgxb.cell1.db.example.com/?async_insert=0&default_format=TSV&insert_quorum=auto&insert_quorum_parallel=1&insert_quorum_timeout=120000": EOF
+    lifecycle_test.go:133: 30 s after it: 12 batches acked, 0 failed attempts map[], longest gap between acks 6.4s; 12 reads (0 failed, 0 torn), p50 3.76s p99 7.592s
+=== NAME  TestLifecycleUnderLoad
+    lifecycle_test.go:169: whole run: 1141 batches acked, 15 failed attempts map[0:5 394:10], longest gap between acks 2562047h47m16.854775807s; 1871 reads (11 failed, 0 torn), p50 3.113s p99 9.316s
+    lifecycle_test.go:170: ledger: 1141 batches acknowledged out of 1141 attempted, 2000 rows per batch
+    lifecycle_test.go:172: replica 0 holds 1141 batches: missing 0, partial 0, duplicated 0, present but never acknowledged 0 []
+    lifecycle_test.go:172: replica 1 holds 1141 batches: missing 0, partial 0, duplicated 0, present but never acknowledged 0 []
+    lifecycle_test.go:172: replica 2 holds 1141 batches: missing 0, partial 0, duplicated 0, present but never acknowledged 0 []
+--- PASS: TestLifecycleUnderLoad (3568.62s)
+    --- PASS: TestLifecycleUnderLoad/add_replica_(t-2_->_t-3r) (369.89s)
+    --- PASS: TestLifecycleUnderLoad/upgrade_server_26.8.34.13_->_26.8.36.3 (1519.92s)
+    --- PASS: TestLifecycleUnderLoad/vertical_scale_(t-3r_->_t-4r) (1484.26s)
+PASS
+ok  	github.com/avilashs/clickhouse_as_service/test/lifecycle	3568.650s

@@ -1,0 +1,37 @@
+== 1. create and connect over TLS
+      cluster cqytw25x25sc
+PASS  cluster cqytw25x25sc becomes ACTIVE
+PASS  stock clickhouse-client connects over TLS with CA verification
+PASS  quorum insert (insert_quorum=2) through the gateway succeeds
+PASS  table is replicated with 2/2 active replicas and 1000 rows
+PASS  plain MergeTree is refused
+PASS  url() to cloud metadata is refused
+PASS  wrong CA is rejected by the client
+PASS  HTTPS endpoint verifies against the published CA
+== 2. kill the worker mid-create
+      cluster cyknwvzzu2dq
+PASS  worker killed immediately after the create call
+PASS  worker killed while waiting for convergence
+PASS  replaying the create with the same key returns the same operation
+PASS  cluster cyknwvzzu2dq becomes ACTIVE after the worker restarts
+PASS  exactly one cluster row
+PASS  exactly one operation
+PASS  exactly one capacity reservation (COMMITTED)
+PASS  exactly one desired-state row
+PASS  exactly one workflow run
+PASS  exactly one namespace
+PASS  exactly one CHI and one CHK
+PASS  exactly one set of credentials
+PASS  an activity was retried after the kill (max attempt 2 > 1)
+== 3. delete
+PASS  cluster cqytw25x25sc deleted
+PASS  namespace ch-cqytw25x25sc removed
+PASS  reservation released
+PASS  credentials removed
+PASS  cluster record soft-deleted
+PASS  cluster cyknwvzzu2dq deleted
+PASS  namespace ch-cyknwvzzu2dq removed
+PASS  reservation released
+PASS  credentials removed
+PASS  cluster record soft-deleted
+== 0 failed

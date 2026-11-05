@@ -1,0 +1,218 @@
+=== RUN   TestControls
+--- PASS: TestControls (80.25s)
+=== RUN   TestTenantAttacks
+=== RUN   TestTenantAttacks/S1_url()_to_cloud_metadata
+=== RUN   TestTenantAttacks/S2_url()_to_an_in-cell_service
+=== RUN   TestTenantAttacks/S3_url()_to_the_control_plane_(host_network)
+=== RUN   TestTenantAttacks/S4_url()_to_the_Kubernetes_API
+=== RUN   TestTenantAttacks/S5_s3()_to_metadata
+=== RUN   TestTenantAttacks/S6_remote()_to_another_tenant
+=== RUN   TestTenantAttacks/S7_remoteSecure()_to_another_tenant
+=== RUN   TestTenantAttacks/S8_mysql()_to_an_in-cell_service
+=== RUN   TestTenantAttacks/S9_postgresql()_to_an_in-cell_service
+=== RUN   TestTenantAttacks/S10_mongodb()_to_an_in-cell_service
+=== RUN   TestTenantAttacks/S11_redis()_to_an_in-cell_service
+=== RUN   TestTenantAttacks/S12_INSERT_INTO_FUNCTION_url()_(exfiltration)
+=== RUN   TestTenantAttacks/S13_URL_table_engine
+=== RUN   TestTenantAttacks/S14_S3_table_engine
+=== RUN   TestTenantAttacks/S15_Kafka_table_engine
+=== RUN   TestTenantAttacks/S16_MySQL_table_engine
+=== RUN   TestTenantAttacks/S17_HTTP_dictionary_source
+=== RUN   TestTenantAttacks/S18_azureBlobStorage()
+=== RUN   TestTenantAttacks/S19_hdfs()
+=== RUN   TestTenantAttacks/S6g_remote()_to_the_cluster's_own_replica_(grant_layer)
+=== RUN   TestTenantAttacks/S7g_remoteSecure()_to_the_cluster's_own_replica_(grant_layer)
+=== RUN   TestTenantAttacks/S8g_mysql()_to_the_cluster's_own_replica_(grant_layer)
+=== RUN   TestTenantAttacks/S9g_postgresql()_to_the_cluster's_own_replica_(grant_layer)
+=== RUN   TestTenantAttacks/S10g_mongodb()_to_the_cluster's_own_replica_(grant_layer)
+=== RUN   TestTenantAttacks/S11g_redis()_to_the_cluster's_own_replica_(grant_layer)
+=== RUN   TestTenantAttacks/S17g_HTTP_dictionary_source_on_the_cluster's_own_replica_(host_allowlist_only)
+=== RUN   TestTenantAttacks/S20_suffix_trick_against_the_host_allowlist
+=== RUN   TestTenantAttacks/F1_file()_outside_user_files
+=== RUN   TestTenantAttacks/F2_file()_path_traversal_to_the_server_config
+=== RUN   TestTenantAttacks/F3_file()_on_the_TLS_private_key
+=== RUN   TestTenantAttacks/F4_INSERT_INTO_FUNCTION_file()_(write)
+=== RUN   TestTenantAttacks/F5_File_table_engine
+=== RUN   TestTenantAttacks/F6_Keeper_contents_via_system.zookeeper
+=== RUN   TestTenantAttacks/F7_Keeper_connection_details
+=== RUN   TestTenantAttacks/F8_file_dictionary_source
+=== RUN   TestTenantAttacks/E1_executable()_table_function
+=== RUN   TestTenantAttacks/E2_Executable_table_engine
+=== RUN   TestTenantAttacks/E3_ExecutablePool_table_engine
+=== RUN   TestTenantAttacks/E4_executable_dictionary_source
+=== RUN   TestTenantAttacks/E5_introspection_(memory_layout)
+=== RUN   TestTenantAttacks/E6_SYSTEM_SHUTDOWN
+=== RUN   TestTenantAttacks/E7_SYSTEM_RELOAD_CONFIG
+=== RUN   TestTenantAttacks/E8_SYSTEM_DROP_REPLICA_(Keeper_metadata)
+=== RUN   TestTenantAttacks/P1_change_the_provider_user's_password
+=== RUN   TestTenantAttacks/P2_change_the_default_user's_password
+=== RUN   TestTenantAttacks/P3_grant_self_everything
+=== RUN   TestTenantAttacks/P4_grant_self_URL_access
+=== RUN   TestTenantAttacks/P5_grant_self_plain_MergeTree
+=== RUN   TestTenantAttacks/P6_give_a_new_role_a_source_grant
+=== RUN   TestTenantAttacks/P7_impersonate_the_provider_user
+=== RUN   TestTenantAttacks/P8_settings_profile_without_limits
+=== RUN   TestTenantAttacks/P9_drop_the_provider's_row_policy
+=== RUN   TestTenantAttacks/P10_replace_the_provider's_row_policy
+=== RUN   TestTenantAttacks/P11_truncate_the_provider's_query_log
+=== RUN   TestTenantAttacks/P12_drop_a_system_log_table
+=== RUN   TestTenantAttacks/P13_change_system_log_retention
+=== RUN   TestTenantAttacks/P14_use_a_named_collection
+=== RUN   TestTenantAttacks/P15_BACKUP_to_the_filesystem
+=== RUN   TestTenantAttacks/L1_unlimited_query_memory
+=== RUN   TestTenantAttacks/L2_query_memory_above_the_size
+=== RUN   TestTenantAttacks/L3_unlimited_per-user_memory
+=== RUN   TestTenantAttacks/L4_more_threads_than_the_size
+=== RUN   TestTenantAttacks/L5_more_concurrent_queries_than_the_size
+=== RUN   TestTenantAttacks/L6_allow_plain_MergeTree_in_Replicated_databases
+=== RUN   TestTenantAttacks/L7_acknowledge_async_inserts_before_they_are_written
+=== RUN   TestTenantAttacks/L8_enable_introspection_functions
+=== RUN   TestTenantAttacks/L9_plain_(unreplicated)_MergeTree
+=== RUN   TestTenantAttacks/L10_runaway_query_(must_fail_with_a_memory_error,_not_kill_the_pod)
+=== RUN   TestTenantAttacks/server_still_serves_after_the_attacks
+=== RUN   TestTenantAttacks/no_request_reached_the_canary
+--- PASS: TestTenantAttacks (101.29s)
+    --- PASS: TestTenantAttacks/S1_url()_to_cloud_metadata (4.78s)
+    --- PASS: TestTenantAttacks/S2_url()_to_an_in-cell_service (0.56s)
+    --- PASS: TestTenantAttacks/S3_url()_to_the_control_plane_(host_network) (0.52s)
+    --- PASS: TestTenantAttacks/S4_url()_to_the_Kubernetes_API (0.21s)
+    --- PASS: TestTenantAttacks/S5_s3()_to_metadata (0.22s)
+    --- PASS: TestTenantAttacks/S6_remote()_to_another_tenant (0.42s)
+    --- PASS: TestTenantAttacks/S7_remoteSecure()_to_another_tenant (0.32s)
+    --- PASS: TestTenantAttacks/S8_mysql()_to_an_in-cell_service (0.34s)
+    --- PASS: TestTenantAttacks/S9_postgresql()_to_an_in-cell_service (1.51s)
+    --- PASS: TestTenantAttacks/S10_mongodb()_to_an_in-cell_service (0.27s)
+    --- PASS: TestTenantAttacks/S11_redis()_to_an_in-cell_service (0.68s)
+    --- PASS: TestTenantAttacks/S12_INSERT_INTO_FUNCTION_url()_(exfiltration) (0.43s)
+    --- PASS: TestTenantAttacks/S13_URL_table_engine (0.52s)
+    --- PASS: TestTenantAttacks/S14_S3_table_engine (0.31s)
+    --- PASS: TestTenantAttacks/S15_Kafka_table_engine (0.75s)
+    --- PASS: TestTenantAttacks/S16_MySQL_table_engine (4.21s)
+    --- PASS: TestTenantAttacks/S17_HTTP_dictionary_source (1.97s)
+    --- PASS: TestTenantAttacks/S18_azureBlobStorage() (0.17s)
+    --- PASS: TestTenantAttacks/S19_hdfs() (0.43s)
+    --- PASS: TestTenantAttacks/S6g_remote()_to_the_cluster's_own_replica_(grant_layer) (0.94s)
+    --- PASS: TestTenantAttacks/S7g_remoteSecure()_to_the_cluster's_own_replica_(grant_layer) (1.01s)
+    --- PASS: TestTenantAttacks/S8g_mysql()_to_the_cluster's_own_replica_(grant_layer) (0.81s)
+    --- PASS: TestTenantAttacks/S9g_postgresql()_to_the_cluster's_own_replica_(grant_layer) (0.47s)
+    --- PASS: TestTenantAttacks/S10g_mongodb()_to_the_cluster's_own_replica_(grant_layer) (1.10s)
+    --- PASS: TestTenantAttacks/S11g_redis()_to_the_cluster's_own_replica_(grant_layer) (1.00s)
+    --- PASS: TestTenantAttacks/S17g_HTTP_dictionary_source_on_the_cluster's_own_replica_(host_allowlist_only) (1.89s)
+    --- PASS: TestTenantAttacks/S20_suffix_trick_against_the_host_allowlist (1.54s)
+    --- PASS: TestTenantAttacks/F1_file()_outside_user_files (0.49s)
+    --- PASS: TestTenantAttacks/F2_file()_path_traversal_to_the_server_config (0.55s)
+    --- PASS: TestTenantAttacks/F3_file()_on_the_TLS_private_key (0.60s)
+    --- PASS: TestTenantAttacks/F4_INSERT_INTO_FUNCTION_file()_(write) (0.69s)
+    --- PASS: TestTenantAttacks/F5_File_table_engine (0.67s)
+    --- PASS: TestTenantAttacks/F6_Keeper_contents_via_system.zookeeper (0.26s)
+    --- PASS: TestTenantAttacks/F7_Keeper_connection_details (0.23s)
+    --- PASS: TestTenantAttacks/F8_file_dictionary_source (0.98s)
+    --- PASS: TestTenantAttacks/E1_executable()_table_function (0.59s)
+    --- PASS: TestTenantAttacks/E2_Executable_table_engine (2.68s)
+    --- PASS: TestTenantAttacks/E3_ExecutablePool_table_engine (0.87s)
+    --- PASS: TestTenantAttacks/E4_executable_dictionary_source (2.38s)
+    --- PASS: TestTenantAttacks/E5_introspection_(memory_layout) (0.60s)
+    --- PASS: TestTenantAttacks/E6_SYSTEM_SHUTDOWN (0.33s)
+    --- PASS: TestTenantAttacks/E7_SYSTEM_RELOAD_CONFIG (1.05s)
+    --- PASS: TestTenantAttacks/E8_SYSTEM_DROP_REPLICA_(Keeper_metadata) (0.51s)
+    --- PASS: TestTenantAttacks/P1_change_the_provider_user's_password (0.87s)
+    --- PASS: TestTenantAttacks/P2_change_the_default_user's_password (0.41s)
+    --- PASS: TestTenantAttacks/P3_grant_self_everything (0.98s)
+    --- PASS: TestTenantAttacks/P4_grant_self_URL_access (0.61s)
+    --- PASS: TestTenantAttacks/P5_grant_self_plain_MergeTree (0.18s)
+    --- PASS: TestTenantAttacks/P6_give_a_new_role_a_source_grant (1.81s)
+    --- PASS: TestTenantAttacks/P7_impersonate_the_provider_user (0.39s)
+    --- PASS: TestTenantAttacks/P8_settings_profile_without_limits (0.72s)
+    --- PASS: TestTenantAttacks/P9_drop_the_provider's_row_policy (0.19s)
+    --- PASS: TestTenantAttacks/P10_replace_the_provider's_row_policy (0.15s)
+    --- PASS: TestTenantAttacks/P11_truncate_the_provider's_query_log (0.57s)
+    --- PASS: TestTenantAttacks/P12_drop_a_system_log_table (0.93s)
+    --- PASS: TestTenantAttacks/P13_change_system_log_retention (0.17s)
+    --- PASS: TestTenantAttacks/P14_use_a_named_collection (0.71s)
+    --- PASS: TestTenantAttacks/P15_BACKUP_to_the_filesystem (0.93s)
+    --- PASS: TestTenantAttacks/L1_unlimited_query_memory (0.65s)
+    --- PASS: TestTenantAttacks/L2_query_memory_above_the_size (0.64s)
+    --- PASS: TestTenantAttacks/L3_unlimited_per-user_memory (0.70s)
+    --- PASS: TestTenantAttacks/L4_more_threads_than_the_size (0.57s)
+    --- PASS: TestTenantAttacks/L5_more_concurrent_queries_than_the_size (1.67s)
+    --- PASS: TestTenantAttacks/L6_allow_plain_MergeTree_in_Replicated_databases (1.45s)
+    --- PASS: TestTenantAttacks/L7_acknowledge_async_inserts_before_they_are_written (2.09s)
+    --- PASS: TestTenantAttacks/L8_enable_introspection_functions (0.44s)
+    --- PASS: TestTenantAttacks/L9_plain_(unreplicated)_MergeTree (2.36s)
+    --- PASS: TestTenantAttacks/L10_runaway_query_(must_fail_with_a_memory_error,_not_kill_the_pod) (36.55s)
+    --- PASS: TestTenantAttacks/server_still_serves_after_the_attacks (1.14s)
+    --- PASS: TestTenantAttacks/no_request_reached_the_canary (2.55s)
+=== RUN   TestTenantCreatedUserCannotEscapeLimits
+--- PASS: TestTenantCreatedUserCannotEscapeLimits (10.24s)
+=== RUN   TestProviderAccountsUnreachableFromTenantSide
+=== RUN   TestProviderAccountsUnreachableFromTenantSide/provider_ops_with_no_certificate
+=== RUN   TestProviderAccountsUnreachableFromTenantSide/provider_ops_with_a_self-signed_certificate_(CN_basalt-agent)
+=== RUN   TestProviderAccountsUnreachableFromTenantSide/clickhouse_operator_with_the_real_operator_password
+=== RUN   TestProviderAccountsUnreachableFromTenantSide/default_user_with_its_real_password
+=== RUN   TestProviderAccountsUnreachableFromTenantSide/control:_the_agent's_certificate_works_(so_the_denials_above_are_not_vacuous)
+--- PASS: TestProviderAccountsUnreachableFromTenantSide (4.57s)
+    --- PASS: TestProviderAccountsUnreachableFromTenantSide/provider_ops_with_no_certificate (0.76s)
+    --- PASS: TestProviderAccountsUnreachableFromTenantSide/provider_ops_with_a_self-signed_certificate_(CN_basalt-agent) (0.14s)
+    --- PASS: TestProviderAccountsUnreachableFromTenantSide/clickhouse_operator_with_the_real_operator_password (1.43s)
+    --- PASS: TestProviderAccountsUnreachableFromTenantSide/default_user_with_its_real_password (0.55s)
+    --- PASS: TestProviderAccountsUnreachableFromTenantSide/control:_the_agent's_certificate_works_(so_the_denials_above_are_not_vacuous) (1.69s)
+=== RUN   TestNoSecretsVisibleToTenant
+--- PASS: TestNoSecretsVisibleToTenant (18.83s)
+=== RUN   TestCrossTenant
+=== RUN   TestCrossTenant/tenant_A's_admin_credentials_on_tenant_B's_endpoint
+=== RUN   TestCrossTenant/tenant_A's_certificate_does_not_cover_tenant_B's_name
+=== RUN   TestCrossTenant/API:_tenant_A's_token_on_tenant_B's_cluster
+--- PASS: TestCrossTenant (1.45s)
+    --- PASS: TestCrossTenant/tenant_A's_admin_credentials_on_tenant_B's_endpoint (1.26s)
+    --- PASS: TestCrossTenant/tenant_A's_certificate_does_not_cover_tenant_B's_name (0.18s)
+    --- PASS: TestCrossTenant/API:_tenant_A's_token_on_tenant_B's_cluster (0.01s)
+=== RUN   TestNetworkIsolation
+=== RUN   TestNetworkIsolation/control:_reaches_own_replica_(native_TLS)
+=== RUN   TestNetworkIsolation/control:_reaches_own_Keeper
+=== RUN   TestNetworkIsolation/blocked:_another_tenant's_server
+=== RUN   TestNetworkIsolation/blocked:_another_tenant's_Keeper
+=== RUN   TestNetworkIsolation/blocked:_in-cell_canary_(HTTP)
+=== RUN   TestNetworkIsolation/blocked:_in-cell_canary_(MySQL_port)
+=== RUN   TestNetworkIsolation/blocked:_Kubernetes_API_(service_IP)
+=== RUN   TestNetworkIsolation/blocked:_control_plane_on_the_host_network
+=== RUN   TestNetworkIsolation/blocked:_cloud_metadata_address
+=== RUN   TestNetworkIsolation/blocked:_EKS_Pod_Identity_agent_address
+=== RUN   TestNetworkIsolation/blocked:_the_shared_gateway
+=== RUN   TestNetworkIsolation/blocked:_the_operator's_metrics
+=== RUN   TestNetworkIsolation/blocked:_the_internet
+=== RUN   TestNetworkIsolation/blocked:_url()_from_clickhouse-local_inside_the_pod_(no_grants_involved)
+=== RUN   TestNetworkIsolation/no_connection_reached_the_canary
+--- PASS: TestNetworkIsolation (60.27s)
+    --- PASS: TestNetworkIsolation/control:_reaches_own_replica_(native_TLS) (4.61s)
+    --- PASS: TestNetworkIsolation/control:_reaches_own_Keeper (3.51s)
+    --- PASS: TestNetworkIsolation/blocked:_another_tenant's_server (5.98s)
+    --- PASS: TestNetworkIsolation/blocked:_another_tenant's_Keeper (1.79s)
+    --- PASS: TestNetworkIsolation/blocked:_in-cell_canary_(HTTP) (4.06s)
+    --- PASS: TestNetworkIsolation/blocked:_in-cell_canary_(MySQL_port) (1.28s)
+    --- PASS: TestNetworkIsolation/blocked:_Kubernetes_API_(service_IP) (1.15s)
+    --- PASS: TestNetworkIsolation/blocked:_control_plane_on_the_host_network (0.94s)
+    --- PASS: TestNetworkIsolation/blocked:_cloud_metadata_address (1.63s)
+    --- PASS: TestNetworkIsolation/blocked:_EKS_Pod_Identity_agent_address (4.45s)
+    --- PASS: TestNetworkIsolation/blocked:_the_shared_gateway (1.54s)
+    --- PASS: TestNetworkIsolation/blocked:_the_operator's_metrics (2.89s)
+    --- PASS: TestNetworkIsolation/blocked:_the_internet (1.08s)
+    --- PASS: TestNetworkIsolation/blocked:_url()_from_clickhouse-local_inside_the_pod_(no_grants_involved) (23.14s)
+    --- PASS: TestNetworkIsolation/no_connection_reached_the_canary (2.21s)
+=== RUN   TestProviderQueriesCannotBeKilledByTenant
+=== RUN   TestProviderQueriesCannotBeKilledByTenant/KILL_QUERY_ON_CLUSTER_is_refused
+--- PASS: TestProviderQueriesCannotBeKilledByTenant (18.78s)
+    --- PASS: TestProviderQueriesCannotBeKilledByTenant/KILL_QUERY_ON_CLUSTER_is_refused (0.93s)
+=== RUN   TestDictionaryCannotBorrowPlatformUsers
+=== RUN   TestDictionaryCannotBorrowPlatformUsers/default_with_no_password
+=== RUN   TestDictionaryCannotBorrowPlatformUsers/default_with_its_real_password
+=== RUN   TestDictionaryCannotBorrowPlatformUsers/provider_ops_with_no_password
+=== RUN   TestDictionaryCannotBorrowPlatformUsers/clickhouse_operator_with_its_real_password
+=== RUN   TestDictionaryCannotBorrowPlatformUsers/control:_the_tenant's_own_admin_works
+--- PASS: TestDictionaryCannotBorrowPlatformUsers (6.09s)
+    --- PASS: TestDictionaryCannotBorrowPlatformUsers/default_with_no_password (1.71s)
+    --- PASS: TestDictionaryCannotBorrowPlatformUsers/default_with_its_real_password (0.77s)
+    --- PASS: TestDictionaryCannotBorrowPlatformUsers/provider_ops_with_no_password (1.15s)
+    --- PASS: TestDictionaryCannotBorrowPlatformUsers/clickhouse_operator_with_its_real_password (0.72s)
+    --- PASS: TestDictionaryCannotBorrowPlatformUsers/control:_the_tenant's_own_admin_works (1.62s)
+PASS
+ok  	github.com/avilashs/clickhouse_as_service/test/attack	301.873s

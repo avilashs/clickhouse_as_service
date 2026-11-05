@@ -1,0 +1,10 @@
+=== RUN   TestLifecycleUnderLoad
+    lifecycle_test.go:105: baseline (insert_quorum=auto): 81 batches acked, 0 failed attempts map[], longest gap between acks 1.6s; 100 reads (0 failed, 0 torn), p50 611ms p99 1.429s
+=== RUN   TestLifecycleUnderLoad/add_replica_(t-2_->_t-3r)
+    lifecycle_test.go:123: operation oi4olommjslj started
+    lifecycle_test.go:128: add replica (t-2 -> t-3r) took 8m6s; during it: 636 batches acked, 0 failed attempts map[], longest gap between acks 4.5s; 349 reads (0 failed, 0 torn), p50 2.219s p99 7.357s
+    lifecycle_test.go:130: 30 s after it: 36 batches acked, 0 failed attempts map[], longest gap between acks 2.5s; 24 reads (0 failed, 0 torn), p50 2.153s p99 3.876s
+=== RUN   TestLifecycleUnderLoad/upgrade_server_26.8.34.13_->_26.8.36.3
+    lifecycle_test.go:123: operation ouysx36fmz25 started
+    lifecycle_test.go:128: upgrade server 26.8.34.13 -> 26.8.36.3 took 12m3s; during it: 378 batches acked, 140 failed attempts map[0:4 60:133 394:3], longest gap between acks 4m35.9s; 1247 reads (1008 failed, 0 torn), p50 2.84s p99 8.61s
+    lifecycle_test.go:130: 30 s after it: 16 batches acked, 0 failed attempts map[], longest gap between acks 3.8s; 22 reads (0 failed, 0 torn), p50 2.117s p99 3.399s

@@ -1,0 +1,36 @@
+=== RUN   TestBackupRestore
+=== RUN   TestBackupRestore/full_backup
+    backup_test.go:172: backup bpzfougmiehb (FULL) took 25s: state COMPLETED, 317386 bytes
+=== RUN   TestBackupRestore/incremental_backup_is_smaller_and_names_its_base
+    backup_test.go:196: backup bpraeq4l3d4w (INCREMENTAL) took 25s: state COMPLETED, 374244 bytes
+=== RUN   TestBackupRestore/the_tenant_cannot_reach_the_store_or_the_credentials
+    backup_test.go:222: denied (497): BACKUP TABLE default.bk_small TO S3('http://backup-store.basalt-system.svc.cluster.local:3900/basalt-backups/steal/', 'a', 'b')
+    backup_test.go:222: denied (497): BACKUP TABLE default.bk_small TO Disk('default', 'x')
+    backup_test.go:222: denied (497): SELECT * FROM s3('http://backup-store.basalt-system.svc.cluster.local:3900/basalt-backups/*', 'a', 'b')
+    backup_test.go:222: denied (497): SELECT * FROM url('http://backup-store.basalt-system.svc.cluster.local:3900/', CSV, 'x String')
+    backup_test.go:222: denied (497): CREATE NAMED COLLECTION evil AS url = 'http://x/'
+    backup_test.go:222: denied (497): RESTORE TABLE default.bk_small FROM S3('http://backup-store.basalt-system.svc.cluster.local:3900/basalt-backups/x/', 'a', 'b')
+    backup_test.go:231: anonymous GET of the bucket: 403 Forbidden
+    backup_test.go:241: anonymous GET of the bucket from a server pod: "HTTP/1.0 403 Forbidden"
+=== RUN   TestBackupRestore/restore_the_incremental_backup_into_a_new_cluster
+    backup_test.go:255: source state:
+        bk_events	60000	12202244315987069414
+        bk_events	60000	12202244315987069414
+        bk_small	5000	16876015480804349662
+        bk_small	5000	16876015480804349662
+        bk_view	30	1175908509521498402
+        bk_view	30	1175908509521498402
+    backup_test.go:268: restore into cluster cs2hkj4rpxcf took 9m21s
+=== RUN   TestBackupRestore/a_backup_others_are_built_on_cannot_be_deleted_first
+    backup_test.go:286: refused: {"code":"CONFLICT","message":"conflict: 1 later backup(s) are built on this one; delete them first"}
+=== RUN   TestBackupRestore/deleting_backups_removes_their_objects,_newest_first
+    backup_test.go:324: objects in the bucket: 73 before, 0 after
+--- PASS: TestBackupRestore (803.20s)
+    --- PASS: TestBackupRestore/full_backup (25.18s)
+    --- PASS: TestBackupRestore/incremental_backup_is_smaller_and_names_its_base (55.87s)
+    --- PASS: TestBackupRestore/the_tenant_cannot_reach_the_store_or_the_credentials (3.73s)
+    --- PASS: TestBackupRestore/restore_the_incremental_backup_into_a_new_cluster (582.80s)
+    --- PASS: TestBackupRestore/a_backup_others_are_built_on_cannot_be_deleted_first (0.00s)
+    --- PASS: TestBackupRestore/deleting_backups_removes_their_objects,_newest_first (66.51s)
+PASS
+ok  	github.com/avilashs/clickhouse_as_service/test/lifecycle	803.211s

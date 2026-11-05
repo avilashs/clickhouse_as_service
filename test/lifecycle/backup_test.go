@@ -111,7 +111,7 @@ func (e *env) insertBatches(t *testing.T, c cluster, from, n int) {
 // a gVisor pod is not reliable under load).
 func (e *env) state(t *testing.T, c cluster) string {
 	t.Helper()
-	cl := e.admin(c)
+	cl := e.provider(t, c) // the platform's own user: tenants hold no READ ON REMOTE
 	var out []string
 	for _, tbl := range []string{"bk_events", "bk_small", "bk_view"} {
 		r := cl.q("SELECT hostName() AS h, count(), sum(cityHash64(*)) FROM clusterAllReplicas('default', default." + tbl + ") GROUP BY h ORDER BY h FORMAT TSV")

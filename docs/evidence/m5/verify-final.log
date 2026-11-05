@@ -1,0 +1,39 @@
+=== RUN   TestBackupRestore
+=== RUN   TestBackupRestore/full_backup
+    backup_test.go:172: backup bfxzyi326lg4 (FULL) took 20s: state COMPLETED, 317386 bytes
+=== RUN   TestBackupRestore/incremental_backup_is_smaller_and_names_its_base
+    backup_test.go:196: backup brglaw3h74qm (INCREMENTAL) took 20s: state COMPLETED, 374244 bytes
+=== RUN   TestBackupRestore/the_tenant_cannot_reach_the_store_or_the_credentials
+    backup_test.go:222: denied (497): BACKUP TABLE default.bk_small TO S3('http://backup-store.basalt-system.svc.cluster.local:3900/basalt-backups/steal/', 'a', 'b')
+    backup_test.go:222: denied (497): BACKUP TABLE default.bk_small TO Disk('default', 'x')
+    backup_test.go:222: denied (497): SELECT * FROM s3('http://backup-store.basalt-system.svc.cluster.local:3900/basalt-backups/*', 'a', 'b')
+    backup_test.go:222: denied (497): SELECT * FROM url('http://backup-store.basalt-system.svc.cluster.local:3900/', CSV, 'x String')
+    backup_test.go:222: denied (497): CREATE NAMED COLLECTION evil AS url = 'http://x/'
+    backup_test.go:222: denied (497): RESTORE TABLE default.bk_small FROM S3('http://backup-store.basalt-system.svc.cluster.local:3900/basalt-backups/x/', 'a', 'b')
+    backup_test.go:231: anonymous GET of the bucket: 403 Forbidden
+    backup_test.go:241: anonymous GET of the bucket from a server pod: "HTTP/1.0 403 Forbidden"
+=== RUN   TestBackupRestore/restore_the_incremental_backup_into_a_new_cluster
+    backup_test.go:254: state of bk_events:  Code: 497. DB::Exception: admin: Not enough privileges. To execute this query, it's necessary to have the grant READ ON REMOTE. (ACCESS_DENIED) (version 26.8.34
+=== RUN   TestBackupRestore/a_backup_others_are_built_on_cannot_be_deleted_first
+    backup_test.go:286: refused: {"code":"CONFLICT","message":"conflict: 1 later backup(s) are built on this one; delete them first"}
+=== RUN   TestBackupRestore/deleting_backups_removes_their_objects,_newest_first
+    backup_test.go:324: objects in the bucket: 73 before, 0 after
+--- FAIL: TestBackupRestore (211.46s)
+    --- PASS: TestBackupRestore/full_backup (20.16s)
+    --- PASS: TestBackupRestore/incremental_backup_is_smaller_and_names_its_base (39.55s)
+    --- PASS: TestBackupRestore/the_tenant_cannot_reach_the_store_or_the_credentials (4.41s)
+    --- FAIL: TestBackupRestore/restore_the_incremental_backup_into_a_new_cluster (0.35s)
+    --- PASS: TestBackupRestore/a_backup_others_are_built_on_cannot_be_deleted_first (0.02s)
+    --- PASS: TestBackupRestore/deleting_backups_removes_their_objects,_newest_first (65.12s)
+=== RUN   TestVerifyGoodBackup
+    verify_test.go:78: backup bjubkeiddg3n (FULL) took 30s: state COMPLETED, 216669 bytes
+    verify_test.go:83: verification vmthek3djbhr: PASSED after 6m1s: 2 tables, 2 exact, 0 bounded, problems []
+--- PASS: TestVerifyGoodBackup (431.58s)
+=== RUN   TestVerifyDamagedBackup
+    verify_test.go:112: backup bdev25bin5it (FULL) took 20s: state COMPLETED, 216669 bytes
+    verify_test.go:132: damaging demo/cjnv4pvkklym/bdev25bin5it/data/default/bk_events/all_0_5_1/data.bin (65800 bytes): replacing it with garbage of the same size
+    verify_test.go:141: verification vx3lubbdetiq: FAILED, problems [default.bk_events: restored 8000 rows (hash 3960100385348219382), the source held 20000 rows (hash 9747795183463275259)]
+--- PASS: TestVerifyDamagedBackup (377.32s)
+FAIL
+FAIL	github.com/avilashs/clickhouse_as_service/test/lifecycle	1020.393s
+FAIL

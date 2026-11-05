@@ -2,7 +2,7 @@
 
 Open-source, self-hostable platform: tenants request ClickHouse clusters through an API and connect with standard ClickHouse clients.
 
-**Status: M4 (stability) complete, running locally on kind.** Reports with test results and known limitations: [M1](docs/m1-report.md) (engine on platform), [M2](docs/m2-report.md) (shared and dedicated tiers, admission, audit, gVisor), [M3](docs/m3-report.md) (tenant attack suite, NetworkPolicy enforcement), [M4](docs/m4-report.md) (stability controls, Keeper loss, disk full, insert storms). What tenants can and cannot do: [security guide](docs/security-guide.md).
+**Status: M5 (lifecycle and backup) complete, running locally on kind.** Reports with test results and known limitations: [M1](docs/m1-report.md) (engine on platform), [M2](docs/m2-report.md) (shared and dedicated tiers, admission, audit, gVisor), [M3](docs/m3-report.md) (tenant attack suite, NetworkPolicy enforcement), [M4](docs/m4-report.md) (stability controls, Keeper loss, disk full, insert storms), [M5](docs/m5-report.md) (scale, upgrade, add replica under load; backup, restore, restore verification). What tenants can and cannot do: [security guide](docs/security-guide.md).
 
 * [Design](docs/clickhouse-design.md) · [ADRs](docs/adr/) · [Dependencies](docs/dependencies.md) · [API (OpenAPI)](api/openapi.yaml)
 * [Phase 0 review](docs/review-2026-11-04.md) and [lab evidence](docs/evidence/2026-11-04-lab.md)

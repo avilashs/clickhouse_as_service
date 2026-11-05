@@ -1,0 +1,6 @@
+=== RUN   TestScheduledBackupAndVerification
+    verify_test.go:183: scheduled backup btsf5zt5zpre (FULL) completed 0s after the test started
+    verify_test.go:185: scheduled verification vhrool3x4gis: PASSED after 5m41s: 1 tables, 0 exact, 1 bounded, scheduled=true, problems []
+--- PASS: TestScheduledBackupAndVerification (365.68s)
+PASS
+ok  	github.com/avilashs/clickhouse_as_service/test/lifecycle	365.695s

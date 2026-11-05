@@ -1,0 +1,65 @@
+== 1. create a shared and a dedicated cluster
+      shared ccsctve6mfry, dedicated cte4rpwmnycf
+PASS  shared cluster becomes ACTIVE
+      timed out in state CREATING (0/2 clickhouse-server pods are ready and run clickhouse/clickhouse-server:26.8.34.13)
+FAIL  dedicated cluster becomes ACTIVE
+== 2. live invariants
+PASS  R1 shared: 2 replicas on 2 different nodes
+PASS  R1b shared: replicas in different zones
+PASS  R3 shared: servers only on shared-pool nodes
+PASS  sandbox: shared servers use RuntimeClass gvisor
+Defaulted container "clickhouse" out of: clickhouse, wait-for-keeper (init), balloon (init)
+PASS  sandbox: the shared server runs on the gVisor kernel
+PASS  R2 dedicated: pool has exactly 2 nodes for 2 servers (R2b)
+PASS  R2 dedicated: each server on its own pool node, one per node
+PASS  R2 dedicated: pool nodes carry only the cluster's own taint
+PASS  R2 dedicated: no other workload pods on the pool nodes
+PASS  R1b dedicated: replicas in different zones
+PASS  dedicated servers run without the sandbox
+PASS  Keeper: 3 replicas each on its own control node
+PASS  dedicated cluster has its own LoadBalancer Service
+PASS  shared cluster answers over TLS through the gateway (gVisor)
+FAIL  dedicated cluster answers over TLS through its own Service
+Code: 210. DB::NetException: Connection refused (cte4rpwmnycf.cell1.db.example.com:19441). (NETWORK_ERROR)
+
+FAIL  dedicated: replicated insert reaches both replicas
+== 3. enforcement
+PASS  taint: pod without the dedicated toleration stays unscheduled
+PASS  admission admits the real shared pod spec
+PASS  admission admits the real dedicated pod spec
+PASS  rejects shared server without the sandbox
+PASS  rejects shared server with another runtime
+PASS  rejects shared server tolerating a dedicated taint
+PASS  rejects dedicated server without exclusivity
+PASS  rejects exclusivity scoped to one namespace
+PASS  rejects dedicated server selecting another pool
+PASS  rejects dedicated server tolerating another cluster
+PASS  rejects missing per-shard anti-affinity (R1)
+PASS  rejects missing zone spread (R1b)
+PASS  rejects ServiceAccount token mount
+PASS  rejects requests != limits
+PASS  rejects privilege escalation
+PASS  rejects tolerating all taints
+PASS  rejects hostPath volumes
+PASS  rejects a correct pod not created by the StatefulSet controller
+PASS  rejects binding a pod straight to a node (spec.nodeName)
+PASS  rejects a non-ClickHouse pod tolerating a dedicated taint
+PASS  rejects a non-ClickHouse pod tolerating the shared pool
+PASS  rejects a tenant-namespace pod tolerating the control pool
+PASS  rejects a ClickHouse StatefulSet not written by the operator
+PASS  admits a metadata-only StatefulSet update by the garbage collector
+PASS  rejects a StatefulSet spec change by the garbage collector
+== 4. continuous audit
+PASS  basalt-audit: no violations with both clusters running
+PASS  audit detects V4 (dedicated node count != server count)
+PASS  audit detects V2 (foreign pod on a dedicated node)
+PASS  in-cell audit service exports the violations as a metric (count=1)
+PASS  violations clear once the state is restored
+== 5. delete
+      timed out in state ACTIVE ()
+FAIL  dedicated cluster deleted
+PASS  shared cluster deleted
+FAIL  dedicated nodes returned to the free pool (3 free, none owned)
+PASS  returned nodes carry only the free-pool taint
+PASS  basalt-audit: no violations after cleanup
+== 5 failed
