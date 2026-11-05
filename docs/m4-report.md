@@ -19,7 +19,7 @@ Date: 2026-11-05. Environment: the M3 kind cell (Kubernetes 1.33.1, 10 nodes, gV
 | Live: disk full (F-4) on a 526 MiB tmpfs | pass | [log](evidence/m4-stability-storm-disk.log) |
 | Live: insert storm (F-7) with a neighbour tenant | **storm and neighbour pass; the recovery criterion was wrong and has been replaced, see below** | [log](evidence/m4-stability-storm-disk.log) |
 | Regression: M3 attack suite on the M4 render | **99/99 subtests, 9/9 tests** | [log](evidence/m4-attack-regression.log) |
-| Regression: M1 / M2 | see "Regression" at the end | – |
+| Regression: M1 / M2 | **31/31 and 53/53** | [M1](evidence/m4-m1-regression.log), [M2](evidence/m4-m2-regression.log) |
 | Alert rules: metric names and labels exist in the live exporter | pass (13 alerts, 16 selectors) | `test/stability/alert_metrics_check.py` |
 | Alert rules: thresholds and `for:` durations evaluated | **not done** (see "Not verified") | – |
 
@@ -87,4 +87,9 @@ Each is in the render, boot-checked, and covered by a unit test; the live ones a
 
 ## Regression
 
-(filled in below)
+Run on fresh clusters rendered with every M4 change (startup probe included):
+
+- **M3 attack suite: 99/99 subtests, 9/9 tests** ([log](evidence/m4-attack-regression.log)).
+- **M1 (`test/e2e/m1.sh`): 31/31** ([log](evidence/m4-m1-regression.log)).
+- **M2 (`test/e2e/m2.sh`): 53/53** ([log](evidence/m4-m2-regression.log)). The placement admission policies accept the new init containers and startup probe.
+- `go test ./...` passes.
