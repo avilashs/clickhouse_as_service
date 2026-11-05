@@ -12,7 +12,8 @@ Each cluster starts with one user, `admin`, holding the role `customer_admin`. I
 - Create and drop databases, tables, views, materialized views and dictionaries with local ClickHouse sources (no `host`; give the dictionary your own user and password), and SQL functions (`CREATE FUNCTION f AS x -> …`).
 - Use the replicated MergeTree family, `Distributed`, `Memory`, `Set`, `Join`, `Buffer`, `Null`, `Merge` and `View` engines. `Memory`, `Set`, `Join` and `Buffer` do not survive a restart.
 - Insert, select, alter, optimize and truncate your tables.
-- Create users, roles, row policies and quotas, and grant them any privilege you hold yourself.
+- Create users, roles and row policies, and grant them any privilege you hold yourself.
+- See the platform quota (`SHOW CREATE QUOTA basalt_default`). It is shared by all your users, so creating more users does not raise it.
 - Read the `system` tables, including your own `query_log`, `processes`, `parts` and `metrics`.
 - Run `SYSTEM FLUSH LOGS`, `SYSTEM SYNC REPLICA`, `SYSTEM STOP/START MERGES|FETCHES|MOVES|TTL MERGES` and `SYSTEM RESTART REPLICA` on your tables.
 - Kill your own queries. You cannot kill queries of other users, including users you created (see below).
@@ -28,8 +29,9 @@ Each cluster starts with one user, `admin`, holding the role `customer_admin`. I
 | Run programs: `executable()`, `Executable`/`ExecutablePool` engines, executable dictionaries, executable UDFs | Code execution | No `TABLE ENGINE ON Executable*` grant; no user-scripts directory exists |
 | Use introspection functions (`addressToSymbol`, …) | They leak memory layout | `allow_introspection_functions` pinned to 0 |
 | Create plain (unreplicated) `MergeTree` tables | They silently lose high availability | `TABLE ENGINE` grants; `database_replicated_allow_only_replicated_engine` pinned to 1 |
-| Raise limits: `max_memory_usage` (0 or above the size), `max_memory_usage_for_user`, `max_threads`, `max_concurrent_queries_for_user`, `wait_for_async_insert = 0`, `allow_introspection_functions` | Protects you and other tenants on shared nodes | Constraints in the server's default profile, which also cover users you create without any role |
+| Raise limits: `max_memory_usage` (0 or above the size), `max_memory_usage_for_user`, `max_threads`, `max_concurrent_queries_for_user`, `wait_for_async_insert = 0`, `allow_introspection_functions`, `max_partitions_per_insert_block` above 500, spill-to-disk limits, the query profilers, `log_queries = 0` | Protects you and other tenants on shared nodes | Constraints in the server's default profile, which also cover users you create without any role |
 | Change the platform's users (`provider_ops`, `default`, `clickhouse_operator`) or use them | Platform integrity | Read-only `users_xml` storage. `provider_ops` accepts only a client certificate signed by the cell CA, and `clickhouse_operator` only connections from the operator's pod IP. `default` accepts only connections from the server itself and holds no privilege beyond `SELECT ON system.one`, so a dictionary that logs in as it gains nothing. Its password exists only in the platform's secret store, never in the cell. |
+| Create, alter or drop quotas | One quota is shared by all your users and cannot be scoped, so whoever may alter a quota may remove ours | `CREATE/ALTER/DROP QUOTA` are not granted (M4) |
 | Kill other users' queries, including the platform's | Platform probes and backups must not be cancelled by tenants | `KILL QUERY` is not granted: in ClickHouse that privilege covers every user's queries. Each user can still kill its own. |
 | See platform activity in `query_log`, `processes` and similar tables | Platform queries include the access bootstrap | Restrictive row policies for every user except the platform's |
 | Truncate, drop or alter `system` tables, or drop the platform's row policies | They underpin monitoring and isolation | Partial revokes on `system.*` |

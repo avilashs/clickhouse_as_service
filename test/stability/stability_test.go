@@ -513,12 +513,15 @@ func TestKeeperQuorumLoss(t *testing.T) {
 	})
 
 	t.Run("a replica that restarts waits for Keeper instead of crash-looping", func(t *testing.T) {
+		oldUID := c.status(1).UID
 		kubectl("-n", c.ns(), "delete", "pod", c.pod(1), "--wait=false")
 		var sawWaiting, crashed bool
 		var last podStatus
 		for i := 0; i < 25; i++ {
 			time.Sleep(3 * time.Second)
-			last = c.status(1)
+			if last = c.status(1); last.UID == oldUID {
+				continue // the old pod is still terminating
+			}
 			if last.Init == "wait-for-keeper" {
 				sawWaiting = true
 			}

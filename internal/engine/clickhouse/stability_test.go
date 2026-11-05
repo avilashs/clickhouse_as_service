@@ -144,6 +144,28 @@ func TestServerPodWaitsForKeeperAndReservesDisk(t *testing.T) {
 	}
 }
 
+// TestServerHasAStartupProbeLongerThanTheOperatorsLivenessGrace: the operator's own liveness
+// probe kills a server that needs more than ~90s to open its port; the startup probe must outlast
+// that by a wide margin and must be the thing guarding startup, not a longer liveness delay.
+func TestServerHasAStartupProbeLongerThanTheOperatorsLivenessGrace(t *testing.T) {
+	for _, in := range []engine.RenderInput{testInput(), dedicatedInput()} {
+		d, _ := Engine{}.Render(in)
+		tpl := dig(find(t, d, "ClickHouseInstallation"), "spec", "templates", "podTemplates").([]any)[0]
+		ctr := dig(tpl, "spec", "containers").([]any)[0].(map[string]any)
+		sp, ok := ctr["startupProbe"].(map[string]any)
+		if !ok {
+			t.Fatal("no startupProbe on the server container")
+		}
+		budget := sp["periodSeconds"].(int) * sp["failureThreshold"].(int)
+		if budget < 300 {
+			t.Errorf("startup budget %ds is too short for a server loading many tables", budget)
+		}
+		if get := dig(sp, "httpGet", "path"); get != "/ping" {
+			t.Errorf("startup probe path %v", get)
+		}
+	}
+}
+
 // TestRenderedSettingNamesExistInTarget guards F-23 (a bad rendered config): every setting the
 // render emits must be a real name in the pinned ClickHouse version. Server config keys that are
 // not in system.server_settings are accepted only under a section listed in knownSections, so a

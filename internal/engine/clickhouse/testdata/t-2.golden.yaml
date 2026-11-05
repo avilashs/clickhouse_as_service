@@ -632,6 +632,14 @@ objects:
               capabilities:
                 drop:
                 - ALL
+            startupProbe:
+              failureThreshold: 120
+              httpGet:
+                path: /ping
+                port: https
+                scheme: HTTPS
+              periodSeconds: 5
+              timeoutSeconds: 2
             volumeMounts:
             - mountPath: /etc/basalt/certs
               name: certs

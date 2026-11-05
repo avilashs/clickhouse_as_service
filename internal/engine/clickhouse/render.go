@@ -400,6 +400,16 @@ func server(n names, c model.Cluster, size model.Size, cell model.Cell) engine.O
 				"requests": map[string]any{"cpu": size.CPU, "memory": size.Memory},
 				"limits":   map[string]any{"cpu": size.CPU, "memory": size.Memory},
 			},
+			// The operator's default liveness probe gives a server about 90 seconds to open its
+			// port (60s initial delay, then 10 failures 3s apart) and kills it after that. A server
+			// loading many tables, or starting on a loaded node, takes longer, and being killed
+			// restarts the whole load (M4: seen on the local cell after a VM restart, 5 to 6 restarts
+			// per server). The kubelet holds liveness and readiness checks back until this probe
+			// succeeds, so startup gets ten minutes and a hung running server is still caught fast.
+			"startupProbe": map[string]any{
+				"httpGet":       map[string]any{"path": "/ping", "port": "https", "scheme": "HTTPS"},
+				"periodSeconds": startupProbePeriod, "failureThreshold": startupProbeFailures, "timeoutSeconds": 2,
+			},
 			"volumeMounts": []any{mount},
 		}},
 		"volumes": []any{vol},
@@ -577,6 +587,12 @@ func serverSettings(n names, c model.Cluster, size model.Size, cell model.Cell) 
 	}
 	return s
 }
+
+// startupProbe budget: 5s x 120 = 10 minutes for a server to open its HTTPS port.
+const (
+	startupProbePeriod   = 5
+	startupProbeFailures = 120
+)
 
 // denyAllHost is the single remote_url_allow_hosts entry: a name that cannot exist.
 const denyAllHost = "basalt-no-egress.invalid"

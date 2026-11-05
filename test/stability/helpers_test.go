@@ -231,6 +231,7 @@ func (c cluster) podSQLAs(replica int, user, pw, sql string) (string, error) {
 }
 
 type podStatus struct {
+	UID      string
 	Phase    string
 	Restarts int
 	OOM      bool
@@ -244,7 +245,8 @@ func (c cluster) status(replica int) podStatus {
 		return podStatus{Phase: "missing"}
 	}
 	var p struct {
-		Status struct {
+		Metadata struct{ UID string }
+		Status   struct {
 			Phase                 string
 			InitContainerStatuses []struct {
 				Name  string
@@ -261,7 +263,7 @@ func (c cluster) status(replica int) podStatus {
 	if json.Unmarshal([]byte(out), &p) != nil {
 		return podStatus{Phase: "unparsed"}
 	}
-	s := podStatus{Phase: p.Status.Phase, Init: "done"}
+	s := podStatus{UID: p.Metadata.UID, Phase: p.Status.Phase, Init: "done"}
 	for _, ic := range p.Status.InitContainerStatuses {
 		if ic.State.Terminated == nil || ic.State.Terminated.ExitCode != 0 {
 			s.Init = ic.Name
