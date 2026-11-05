@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -350,17 +351,78 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+// healthy builds a report in which every pod runs exactly what d expects and every probe answers.
+func healthy(d engine.Desired, hosts int) *engine.Observed {
+	o := &engine.Observed{
+		AppliedGeneration: 3, AppliedHash: "h", BootstrapHash: "h", NamespaceExists: true,
+		Objects:   map[string]string{"ClickHouseKeeperInstallation/" + d.ClusterID: "Completed", "ClickHouseInstallation/" + d.ClusterID: "Completed"},
+		PodsReady: d.Expect.Pods, PodsTotal: d.Expect.Pods,
+	}
+	for _, r := range d.Expect.Roles {
+		for i := 0; i < r.Count; i++ {
+			o.PodList = append(o.PodList, engine.PodInfo{Name: fmt.Sprintf("%s-%d", r.Role, i), Role: r.Role, Image: r.Image, CPU: r.CPU, Memory: r.Memory, Ready: true})
+		}
+	}
+	for i := 0; i < hosts; i++ {
+		o.Probes = append(o.Probes, engine.HostProbe{Host: fmt.Sprint(i), OK: true, ClusterHosts: hosts, KeeperOK: true, Version: d.Expect.ServerVersion})
+	}
+	return o
+}
+
+// TestObserveDoesNotTrustCompletedWhileThePodsRunTheOldSpec: right after a change is applied the
+// operator still reports the previous reconcile as Completed. The update must not look finished
+// until every pod runs the new image and resources and every replica reports the new version.
+func TestObserveDoesNotTrustCompletedWhileThePodsRunTheOldSpec(t *testing.T) {
+	d, _ := Engine{}.Render(testInput())
+	if h := (Engine{}).Observe(d, 3, healthy(d, 2)); h.Phase != engine.PhaseReady {
+		t.Fatalf("baseline: %v", h)
+	}
+	cases := map[string]func(o *engine.Observed){
+		"old image": func(o *engine.Observed) {
+			for i := range o.PodList {
+				if o.PodList[i].Role == ComponentServer {
+					o.PodList[i].Image = "clickhouse/clickhouse-server:26.8.30.1"
+				}
+			}
+		},
+		"old resources": func(o *engine.Observed) {
+			for i := range o.PodList {
+				if o.PodList[i].Role == ComponentServer {
+					o.PodList[i].Memory = "1Gi"
+				}
+			}
+		},
+		"one replica still old": func(o *engine.Observed) { o.PodList[0].Image = "clickhouse/clickhouse-server:old" },
+		"missing replica":       func(o *engine.Observed) { o.PodList = o.PodList[1:] },
+		"replica not ready":     func(o *engine.Observed) { o.PodList[0].Ready = false },
+		"old server version":    func(o *engine.Observed) { o.Probes[1].Version = "26.8.30.1" },
+	}
+	for name, mutate := range cases {
+		o := healthy(d, 2)
+		mutate(o)
+		if h := (Engine{}).Observe(d, 3, o); h.Phase == engine.PhaseReady {
+			t.Errorf("%s: reported ready", name)
+		}
+	}
+	// a quantity is compared by value
+	o := healthy(d, 2)
+	for i := range o.PodList {
+		if o.PodList[i].Role == ComponentServer {
+			o.PodList[i].CPU = "1000m" // the spec says "1"
+		}
+	}
+	if h := (Engine{}).Observe(d, 3, o); h.Phase != engine.PhaseReady {
+		t.Errorf("1000m must equal 1: %v", h)
+	}
+}
+
 func TestObserve(t *testing.T) {
 	d, _ := Engine{}.Render(testInput())
 	if h := (Engine{}).Observe(d, 3, nil); h.Phase != engine.PhaseProgressing {
 		t.Fatalf("nil report: %v", h)
 	}
-	good := &engine.Observed{
-		AppliedGeneration: 3, AppliedHash: "h", BootstrapHash: "h", NamespaceExists: true,
-		Objects:   map[string]string{"ClickHouseKeeperInstallation/cabc123def45": "Completed", "ClickHouseInstallation/cabc123def45": "Completed"},
-		PodsReady: 5, PodsTotal: 5,
-		Probes: []engine.HostProbe{{Host: "a", OK: true, ClusterHosts: 2, KeeperOK: true}, {Host: "b", OK: true, ClusterHosts: 2, KeeperOK: true}},
-	}
+	good := healthy(d, 2)
+	good.Probes = []engine.HostProbe{{Host: "a", OK: true, ClusterHosts: 2, KeeperOK: true, Version: "26.8.34.13"}, {Host: "b", OK: true, ClusterHosts: 2, KeeperOK: true, Version: "26.8.34.13"}}
 	if h := (Engine{}).Observe(d, 3, good); h.Phase != engine.PhaseReady {
 		t.Fatalf("healthy report not ready: %v", h)
 	}
@@ -371,20 +433,17 @@ func TestObserve(t *testing.T) {
 	}
 	// operator says Completed but one replica does not yet see its peer (seen on kind)
 	lag := *good
-	lag.Probes = []engine.HostProbe{{Host: "a", OK: true, ClusterHosts: 1, KeeperOK: true}, {Host: "b", OK: true, ClusterHosts: 2, KeeperOK: true}}
+	lag.Probes = []engine.HostProbe{{Host: "a", OK: true, ClusterHosts: 1, KeeperOK: true, Version: "26.8.34.13"}, {Host: "b", OK: true, ClusterHosts: 2, KeeperOK: true, Version: "26.8.34.13"}}
 	if h := (Engine{}).Observe(d, 3, &lag); h.Phase == engine.PhaseReady {
 		t.Fatalf("incomplete remote_servers must not be ready: %v", h)
 	}
 	down := *good
-	down.Probes = []engine.HostProbe{{Host: "a", OK: false, Error: "refused"}, {Host: "b", OK: true, ClusterHosts: 2, KeeperOK: true}}
+	down.Probes = []engine.HostProbe{{Host: "a", OK: false, Error: "refused"}, {Host: "b", OK: true, ClusterHosts: 2, KeeperOK: true, Version: "26.8.34.13"}}
 	if h := (Engine{}).Observe(d, 3, &down); h.Phase != engine.PhaseDegraded {
 		t.Fatalf("one replica down should be degraded: %v", h)
 	}
 	dd, _ := Engine{}.Render(dedicatedInput())
-	noNodes := *good
-	noNodes.Objects = map[string]string{"ClickHouseKeeperInstallation/cded1234abcd": "Completed", "ClickHouseInstallation/cded1234abcd": "Completed"}
-	noNodes.PodsReady = 7
-	noNodes.Probes = []engine.HostProbe{{OK: true, ClusterHosts: 4, KeeperOK: true}, {OK: true, ClusterHosts: 4, KeeperOK: true}, {OK: true, ClusterHosts: 4, KeeperOK: true}, {OK: true, ClusterHosts: 4, KeeperOK: true}}
+	noNodes := *healthy(dd, 4)
 	if h := (Engine{}).Observe(dd, 3, &noNodes); h.Phase == engine.PhaseReady {
 		t.Fatalf("dedicated cluster without its node pool must not be ready: %v", h)
 	}

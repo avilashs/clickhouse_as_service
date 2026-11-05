@@ -31,10 +31,8 @@ func TestSyncHealthFollowsTheAgentsObservations(t *testing.T) {
 	}
 	observe := func(keeperOK bool, at time.Time) {
 		row, _ := s.GetDesired(bg, c.ID)
-		o := engine.Observed{ClusterID: c.ID, AppliedGeneration: row.Generation, AppliedHash: row.Hash, BootstrapHash: row.Hash,
-			NamespaceExists: true, ObservedAt: at, PodsReady: 5, PodsTotal: 5,
-			Objects: map[string]string{"ClickHouseKeeperInstallation/" + c.ID: "Completed", "ClickHouseInstallation/" + c.ID: "Completed"},
-			Probes:  []engine.HostProbe{{Host: "a", OK: true, ClusterHosts: 2, KeeperOK: keeperOK}, {Host: "b", OK: true, ClusterHosts: 2, KeeperOK: true}}}
+		o := engine.Observed{ClusterID: c.ID, AppliedGeneration: row.Generation, AppliedHash: row.Hash, NamespaceExists: true, ObservedAt: at}
+		fillHealthy(&o, row, keeperOK)
 		if err := s.RecordObserved(bg, "cell1", []engine.Observed{o}); err != nil {
 			t.Fatal(err)
 		}

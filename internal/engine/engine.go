@@ -63,12 +63,35 @@ type Desired struct {
 	Expect       Expectation       `json:"expect"`
 }
 
+// PodExpect is what every pod of one role must be running before an update counts as done.
+// The operator reports "Completed" before it has noticed a changed spec (M5), so Observe also
+// compares the pods themselves with what was asked for.
+type PodExpect struct {
+	Role   string `json:"role"` // value of the pod label basalt.io/component
+	Count  int    `json:"count"`
+	Image  string `json:"image"`
+	CPU    string `json:"cpu,omitempty"`    // requests; empty skips the check
+	Memory string `json:"memory,omitempty"` // requests; empty skips the check
+}
+
+// PodInfo is what the agent saw on one pod of the cluster.
+type PodInfo struct {
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+	Image  string `json:"image"`
+	CPU    string `json:"cpu,omitempty"`
+	Memory string `json:"memory,omitempty"`
+	Ready  bool   `json:"ready"`
+}
+
 // Expectation is what Observe checks against.
 type Expectation struct {
-	Pods        int `json:"pods"`
-	ServerHosts int `json:"serverHosts"` // hosts each replica must see in system.clusters
-	KeeperNodes int `json:"keeperNodes"`
-	PoolNodes   int `json:"poolNodes,omitempty"` // dedicated: ready nodes in the cluster's pool
+	Roles         []PodExpect `json:"roles,omitempty"`
+	ServerVersion string      `json:"serverVersion,omitempty"` // what SELECT version() must return on every replica
+	Pods          int         `json:"pods"`
+	ServerHosts   int         `json:"serverHosts"` // hosts each replica must see in system.clusters
+	KeeperNodes   int         `json:"keeperNodes"`
+	PoolNodes     int         `json:"poolNodes,omitempty"` // dedicated: ready nodes in the cluster's pool
 }
 
 // Hash is a stable digest of the desired payload; unchanged hash = nothing to publish.
@@ -86,6 +109,7 @@ type HostProbe struct {
 	Host         string `json:"host"`
 	OK           bool   `json:"ok"`
 	ClusterHosts int    `json:"clusterHosts"`
+	Version      string `json:"version,omitempty"`
 	KeeperOK     bool   `json:"keeperOk"`
 	Error        string `json:"error,omitempty"`
 }
@@ -99,6 +123,7 @@ type Observed struct {
 	Objects           map[string]string `json:"objects"` // "Kind/name" -> status (e.g. CHI .status.status)
 	PodsReady         int               `json:"podsReady"`
 	PodsTotal         int               `json:"podsTotal"`
+	PodList           []PodInfo         `json:"podList,omitempty"`
 	BootstrapHash     string            `json:"bootstrapHash"` // payload hash whose bootstrap SQL succeeded
 	Probes            []HostProbe       `json:"probes"`
 	PoolNodes         int               `json:"poolNodes"` // nodes currently in the cluster's node pool
@@ -148,6 +173,8 @@ type RenderInput struct {
 type Engine interface {
 	Kind() string
 	Validate(spec model.ClusterSpec, cell model.Cell) []FieldError
+	// ValidateUpdate checks a change of a live cluster's spec (it also applies Validate to next).
+	ValidateUpdate(cur, next model.ClusterSpec, cell model.Cell) []FieldError
 	PlanPlacement(spec model.ClusterSpec) (PlacementPlan, error)
 	Render(in RenderInput) (Desired, error)
 	Observe(desired Desired, generation int64, obs *Observed) Health

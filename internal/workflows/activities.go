@@ -125,6 +125,9 @@ type WaitInput struct {
 	ClusterID  string
 	Generation int64
 	Want       engine.Phase // PhaseReady or PhaseGone
+	// Progress is the state shown to the tenant while waiting for PhaseReady (default CREATING;
+	// updates use UPDATING so that a running update does not look like a creation).
+	Progress model.ClusterState
 }
 
 // WaitForPhase polls the agent's reports until the cluster reaches the wanted phase. It
@@ -148,7 +151,11 @@ func (a *Activities) WaitForPhase(ctx context.Context, in WaitInput) (engine.Hea
 		if in.Want == engine.PhaseReady && len(h.Reasons) > 0 && h.Reasons[0] != lastReason {
 			lastReason = h.Reasons[0]
 			// progress is visible to the tenant while the cluster converges
-			_ = a.Store.SetClusterState(ctx, in.ClusterID, model.ClusterCreating, truncate(lastReason, 300))
+			progress := in.Progress
+			if progress == "" {
+				progress = model.ClusterCreating
+			}
+			_ = a.Store.SetClusterState(ctx, in.ClusterID, progress, truncate(lastReason, 300))
 		}
 		select {
 		case <-ctx.Done():
@@ -248,4 +255,101 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// ReserveUpdateCapacity holds what an update adds to the cluster's current footprint (nothing
+// for a version-only change). The reservation is swapped for the new plan in FinishUpdate.
+func (a *Activities) ReserveUpdateCapacity(ctx context.Context, in ReserveInput) error {
+	c, err := a.Store.GetCluster(ctx, "", in.ClusterID)
+	if err != nil {
+		return err
+	}
+	cur, err := a.Store.CurrentSpec(ctx, in.ClusterID)
+	if err != nil {
+		return err
+	}
+	e, err := a.engineFor(c)
+	if err != nil {
+		return err
+	}
+	next, err := e.PlanPlacement(c.Spec)
+	if err != nil {
+		return temporal.NewNonRetryableApplicationError(err.Error(), ErrTypeInvalid, err)
+	}
+	old, err := e.PlanPlacement(cur)
+	if err != nil {
+		return temporal.NewNonRetryableApplicationError(err.Error(), ErrTypeInvalid, err)
+	}
+	delta := engine.PlacementPlan{Pool: next.Pool}
+	if d := next.MilliCPU - old.MilliCPU; d > 0 {
+		delta.MilliCPU = d
+	}
+	if d := next.MemoryBytes - old.MemoryBytes; d > 0 {
+		delta.MemoryBytes = d
+	}
+	if d := next.Pods - old.Pods; d > 0 {
+		delta.Pods = d
+	}
+	if err := a.Store.Reserve(ctx, in.OperationID, c.CellID, c.ID, delta); err != nil {
+		if errors.Is(err, store.ErrCapacity) {
+			return temporal.NewNonRetryableApplicationError(err.Error(), ErrTypeCapacity, err)
+		}
+		return err
+	}
+	return nil
+}
+
+// RevertSpec points the cluster's desired spec back at the last one it reached.
+func (a *Activities) RevertSpec(ctx context.Context, clusterID string) error {
+	return a.Store.RevertToCurrentSpec(ctx, clusterID)
+}
+
+// FinishUpdate swaps the reservation for the new plan and makes the new spec the current one.
+func (a *Activities) FinishUpdate(ctx context.Context, in FinishInput) error {
+	c, err := a.Store.GetCluster(ctx, "", in.ClusterID)
+	if err != nil {
+		return err
+	}
+	e, err := a.engineFor(c)
+	if err != nil {
+		return err
+	}
+	plan, err := e.PlanPlacement(c.Spec)
+	if err != nil {
+		return temporal.NewNonRetryableApplicationError(err.Error(), ErrTypeInvalid, err)
+	}
+	if err := a.Store.ReplaceClusterReservation(ctx, in.OperationID, c.CellID, c.ID, plan); err != nil {
+		return err
+	}
+	if err := a.Store.MarkClusterActive(ctx, in.ClusterID); err != nil {
+		return err
+	}
+	_ = a.Store.Audit(ctx, "workflow", "cluster.updated", in.ClusterID, in.OperationID, map[string]any{"size": c.Spec.Size, "version": c.Spec.ServerVersion, "replicas": c.Spec.ReplicasPerShard})
+	return a.Store.SetOperationState(ctx, in.OperationID, model.OpSucceeded, "")
+}
+
+type FailUpdateInput struct {
+	OperationID, ClusterID, Message string
+	RolledBack                      bool
+}
+
+// FailUpdate ends a failed update. If the previous spec is running again the cluster is ACTIVE
+// and the operation carries the reason; if not, the cluster is DEGRADED so that it is visible.
+func (a *Activities) FailUpdate(ctx context.Context, in FailUpdateInput) error {
+	if err := a.Store.ReleaseReservation(ctx, in.OperationID); err != nil {
+		return err
+	}
+	if in.RolledBack {
+		// whatever failed, the cluster's desired spec must be the one it last reached again
+		if err := a.Store.RevertToCurrentSpec(ctx, in.ClusterID); err != nil {
+			return err
+		}
+		if err := a.Store.FinishUpdateRollback(ctx, in.ClusterID); err != nil {
+			return err
+		}
+	} else if err := a.Store.SetClusterState(ctx, in.ClusterID, model.ClusterDegraded, truncate(in.Message, 300)); err != nil {
+		return err
+	}
+	_ = a.Store.Audit(ctx, "workflow", "operation.failed", in.ClusterID, in.OperationID, map[string]any{"error": in.Message})
+	return a.Store.SetOperationState(ctx, in.OperationID, model.OpFailed, truncate(in.Message, 1000))
 }

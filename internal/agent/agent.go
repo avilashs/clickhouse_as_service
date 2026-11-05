@@ -368,11 +368,25 @@ func (a *Agent) observeObjects(ctx context.Context, e api.DesiredEntry, obs *eng
 	}
 	for _, p := range pods.Items {
 		obs.PodsTotal++
+		ready := false
 		for _, c := range p.Status.Conditions {
 			if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
 				obs.PodsReady++
+				ready = true
 			}
 		}
+		info := engine.PodInfo{Name: p.Name, Role: p.Labels["basalt.io/component"], Ready: ready && p.DeletionTimestamp == nil}
+		if len(p.Spec.Containers) > 0 {
+			c := p.Spec.Containers[0]
+			info.Image = c.Image
+			if q, ok := c.Resources.Requests[corev1.ResourceCPU]; ok {
+				info.CPU = q.String()
+			}
+			if q, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+				info.Memory = q.String()
+			}
+		}
+		obs.PodList = append(obs.PodList, info)
 	}
 }
 
@@ -430,6 +444,7 @@ func (a *Agent) probe(ctx context.Context, d engine.Desired) []engine.HostProbe 
 				p.Error = err.Error()
 				return
 			}
+			_ = c.QueryRow(pctx, "SELECT version()").Scan(&p.Version)
 			p.OK, p.ClusterHosts = true, int(n)
 			var k uint64
 			p.KeeperOK = c.QueryRow(pctx, "SELECT count() FROM system.zookeeper WHERE path = '/'").Scan(&k) == nil

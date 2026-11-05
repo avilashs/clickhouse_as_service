@@ -30,7 +30,9 @@ import (
 // DefaultServerVersion is the current LTS channel default (design §13.2).
 const DefaultServerVersion = "26.8.34.13"
 
-var Versions = map[string][]string{"lts": {"26.8.34.13"}}
+// Versions are the offered images by channel. A version is offered once the M3 attack suite has
+// passed on a cluster running it (design §13.2); 26.8.36.3's result is in docs/m5-report.md.
+var Versions = map[string][]string{"lts": {"26.8.34.13", "26.8.36.3"}}
 
 type Server struct {
 	Store    *store.Store
@@ -67,6 +69,7 @@ func (s *Server) register(handle func(pattern string, h http.HandlerFunc)) {
 	handle("POST /v1/projects/{project}/clusters", s.tenant(s.createCluster))
 	handle("GET /v1/projects/{project}/clusters", s.tenant(s.listClusters))
 	handle("GET /v1/projects/{project}/clusters/{cluster}", s.tenant(s.getCluster))
+	handle("PATCH /v1/projects/{project}/clusters/{cluster}", s.tenant(s.updateCluster))
 	handle("DELETE /v1/projects/{project}/clusters/{cluster}", s.tenant(s.deleteCluster))
 	handle("GET /v1/projects/{project}/clusters/{cluster}/initialCredentials", s.tenant(s.initialCredentials))
 	handle("GET /v1/projects/{project}/operations/{operation}", s.tenant(s.getOperation))
@@ -248,7 +251,7 @@ func (s *Server) createCluster(w http.ResponseWriter, r *http.Request, project s
 	}
 	spec := model.ClusterSpec{
 		Version: 1, Engine: "clickhouse", Tier: model.Tier(req.Tier), Size: req.Size, Shards: req.Shards,
-		ReplicasPerShard: req.ReplicasPerShard, StorageGiB: req.StorageGiB, ServerVersion: req.Version,
+		ReplicasPerShard: req.ReplicasPerShard, StorageGiB: req.StorageGiB, ServerVersion: req.Version, KeeperVersion: req.Version,
 	}
 	if !versionOffered(req.Version) {
 		writeJSON(w, 400, apiError{Code: "INVALID", Message: "invalid request", Fields: []engine.FieldError{{Field: "version", Message: fmt.Sprintf("not offered; see GET /v1/versions")}}})
@@ -456,3 +459,92 @@ type statusWriter struct {
 }
 
 func (s *statusWriter) WriteHeader(c int) { s.status = c; s.ResponseWriter.WriteHeader(c) }
+
+// UpdateClusterRequest changes a live cluster. Only the fields present change.
+type UpdateClusterRequest struct {
+	Size             *string `json:"size,omitempty"`
+	ReplicasPerShard *int    `json:"replicasPerShard,omitempty"`
+	StorageGiB       *int    `json:"storageGiB,omitempty"`
+	Version          *string `json:"version,omitempty"`
+	// FinalizeUpgrade lifts the compatibility pin that an upgrade across minor versions sets.
+	FinalizeUpgrade bool `json:"finalizeUpgrade,omitempty"`
+}
+
+func (s *Server) updateCluster(w http.ResponseWriter, r *http.Request, project string) {
+	key, ok := idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var req UpdateClusterRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeErr(w, 400, "BAD_REQUEST", "invalid JSON body: "+err.Error())
+		return
+	}
+	id := r.PathValue("cluster")
+	c, err := s.Store.GetCluster(r.Context(), project, id)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	cell, _, err := s.Store.GetCell(r.Context(), c.CellID)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	cur, next := c.Spec, c.Spec
+	// a spec written before M5 has no Keeper pin and follows the server version: pin it to what
+	// is running now, so that a server upgrade never moves Keeper
+	next.KeeperVersion = cur.KeeperImageVersion()
+	invalid := func(field, msg string) {
+		writeJSON(w, 400, apiError{Code: "INVALID", Message: "invalid request", Fields: []engine.FieldError{{Field: field, Message: msg}}})
+	}
+	if req.Size != nil {
+		size, ok := model.Sizes[*req.Size]
+		if !ok {
+			invalid("size", fmt.Sprintf("unknown size %q; see GET /v1/sizes", *req.Size))
+			return
+		}
+		next.Size = size.Name
+		if cur.Tier == model.TierShared {
+			next.ReplicasPerShard = size.Replicas // a shared size fixes the replica count
+		}
+	}
+	if req.ReplicasPerShard != nil {
+		if cur.Tier == model.TierShared && *req.ReplicasPerShard != model.Sizes[next.Size].Replicas {
+			invalid("replicasPerShard", fmt.Sprintf("a shared-tier size fixes the replica count (%s has %d); choose a size with the replicas you want", next.Size, model.Sizes[next.Size].Replicas))
+			return
+		}
+		next.ReplicasPerShard = *req.ReplicasPerShard
+	}
+	if req.StorageGiB != nil {
+		next.StorageGiB = *req.StorageGiB
+	}
+	if req.Version != nil {
+		if !versionOffered(*req.Version) {
+			invalid("version", "not offered; see GET /v1/versions")
+			return
+		}
+		next.ServerVersion = *req.Version
+	}
+	next = clickhouse.PlanUpgrade(cur, next, req.FinalizeUpgrade)
+	if next == cur || (next.KeeperVersion != cur.KeeperVersion && func() bool { n := next; n.KeeperVersion = cur.KeeperVersion; return n == cur }()) {
+		invalid("", "the request changes nothing")
+		return
+	}
+	if errs := s.Engines[c.Spec.Engine].ValidateUpdate(cur, next, cell); len(errs) > 0 {
+		writeJSON(w, 400, apiError{Code: "INVALID", Message: "invalid request", Fields: errs})
+		return
+	}
+	op := model.Operation{ID: model.NewID("o"), ProjectID: project, ClusterID: id, Kind: model.OpUpdateCluster, State: model.OpPending, CreatedAt: time.Now().UTC()}
+	op, created, err := s.Store.StartUpdate(r.Context(), project, cur.Version, next, op, key, requestHash(r.Method, r.URL.Path, req))
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	if created {
+		_ = s.Store.Audit(r.Context(), "project:"+project, "cluster.update", id, op.ID, map[string]any{"size": next.Size, "version": next.ServerVersion, "replicas": next.ReplicasPerShard})
+	}
+	s.startAndRespond(w, r, op)
+}

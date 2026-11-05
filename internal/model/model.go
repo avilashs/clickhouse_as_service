@@ -37,6 +37,7 @@ type OperationKind string
 const (
 	OpCreateCluster OperationKind = "CREATE_CLUSTER"
 	OpDeleteCluster OperationKind = "DELETE_CLUSTER"
+	OpUpdateCluster OperationKind = "UPDATE_CLUSTER"
 )
 
 // Tier is shared or dedicated (design §7).
@@ -57,6 +58,20 @@ type ClusterSpec struct {
 	ReplicasPerShard int    `json:"replicasPerShard"`
 	StorageGiB       int    `json:"storageGiB"`
 	ServerVersion    string `json:"serverVersion"`
+	// KeeperVersion pins the Keeper image. A server upgrade does not move it: Keeper is upgraded
+	// on its own (and not by M5). Empty means "same as ServerVersion", for specs written before M5.
+	KeeperVersion string `json:"keeperVersion,omitempty"`
+	// CompatibilityPin, when set, is rendered as the `compatibility` setting of the default
+	// profile so a new binary behaves like the old minor version until the upgrade is finalised.
+	CompatibilityPin string `json:"compatibilityPin,omitempty"`
+}
+
+// KeeperImageVersion is the version of the Keeper image for the spec.
+func (s ClusterSpec) KeeperImageVersion() string {
+	if s.KeeperVersion != "" {
+		return s.KeeperVersion
+	}
+	return s.ServerVersion
 }
 
 // Cluster is a tenant cluster as stored in the control plane.
@@ -130,6 +145,15 @@ var Sizes = map[string]Size{
 		Replicas: 2, MaxThreads: 2, MaxConcurrent: 50, DefaultStorage: 5, MaxStorage: 20, HA: true, LocalOnly: true,
 		KeeperReplicas: 3, KeeperCPURequest: "100m", KeeperCPULimit: "500m", KeeperMemory: "256Mi",
 		InstanceType: "kind", MaxShards: 3, MaxReplicas: 3},
+	// Local-only sizes for the M5 lifecycle tests. A shared-tier size fixes the replica count, so
+	// "t-3r" is the same pod as "t-2" with a third replica (add replica), and "t-4r" is the same
+	// replica count with bigger pods (vertical scale).
+	"t-3r": {Name: "t-3r", Tier: TierShared, CPU: "1", MilliCPU: 1000, Memory: "2Gi", MemoryBytes: 2 * gib,
+		Replicas: 3, MaxThreads: 2, MaxConcurrent: 20, DefaultStorage: 5, MaxStorage: 20, HA: true, LocalOnly: true,
+		KeeperReplicas: 3, KeeperCPURequest: "100m", KeeperCPULimit: "500m", KeeperMemory: "256Mi"},
+	"t-4r": {Name: "t-4r", Tier: TierShared, CPU: "2", MilliCPU: 2000, Memory: "3Gi", MemoryBytes: 3 * gib,
+		Replicas: 3, MaxThreads: 4, MaxConcurrent: 30, DefaultStorage: 5, MaxStorage: 20, HA: true, LocalOnly: true,
+		KeeperReplicas: 3, KeeperCPURequest: "100m", KeeperCPULimit: "500m", KeeperMemory: "256Mi"},
 	// m7g.4xlarge: 16 vCPU / 64 GiB, minus kubelet, DaemonSets and 5% headroom (design §7.2)
 	"d-m7g-4xl": {Name: "d-m7g-4xl", Tier: TierDedicated, CPU: "14", MilliCPU: 14000, Memory: "56Gi", MemoryBytes: 56 * gib,
 		Replicas: 2, MaxThreads: 14, MaxConcurrent: 300, DefaultStorage: 500, MaxStorage: 16000, HA: true,

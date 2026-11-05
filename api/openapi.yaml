@@ -57,6 +57,24 @@ paths:
       responses:
         "200": {description: Cluster, content: {application/json: {schema: {$ref: "#/components/schemas/Cluster"}}}}
         "404": {$ref: "#/components/responses/Error"}
+    patch:
+      summary: Change a live cluster (vertical scale, replica count, server upgrade)
+      description: |
+        Only the fields present change. The cluster must be ACTIVE; it moves to UPDATING while the
+        operator restarts one host at a time, waiting for replicas to catch up between hosts. If the
+        change does not converge, the previous spec is restored and the operation fails with the reason.
+        A shared-tier size fixes the replica count, so adding a replica there means choosing a size
+        with more. Not supported yet: shard count, volume changes on local cells, dedicated node type,
+        Keeper version, downgrades.
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/UpdateClusterRequest"}}}
+      responses:
+        "202": {$ref: "#/components/responses/Accepted"}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
     delete:
       summary: Delete a cluster
       parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
@@ -120,6 +138,15 @@ components:
         shards: {type: integer, minimum: 1, description: "Dedicated tier only (shared clusters have 1 shard)"}
         replicasPerShard: {type: integer, minimum: 1, description: "Dedicated tier only; defaults to the size's replica count. 1 means no HA."}
         version: {type: string, description: "Defaults to the LTS channel; see GET /v1/versions"}
+    UpdateClusterRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        size: {type: string, description: "See GET /v1/sizes. Same tier only."}
+        replicasPerShard: {type: integer, minimum: 1, description: "Dedicated tier only"}
+        storageGiB: {type: integer, minimum: 1, description: "Grow only; not on local cells"}
+        version: {type: string, description: "A newer version from GET /v1/versions"}
+        finalizeUpgrade: {type: boolean, description: "Lift the compatibility pin set by an upgrade across minor versions"}
     ClusterSpec:
       type: object
       properties:

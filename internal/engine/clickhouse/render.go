@@ -164,7 +164,7 @@ func (e Engine) Render(in engine.RenderInput) (engine.Desired, error) {
 
 	objs := []engine.Object{namespace(n, c), usersSecretObj(n)}
 	objs = append(objs, networkPolicies(n)...)
-	objs = append(objs, keeper(n, size, c.Spec.ServerVersion), server(n, c, size, in.Cell))
+	objs = append(objs, keeper(n, size, c.Spec.KeeperImageVersion()), server(n, c, size, in.Cell))
 	for s := 0; s < c.Spec.Shards; s++ {
 		objs = append(objs, podDisruptionBudget(n, s))
 	}
@@ -189,9 +189,14 @@ func (e Engine) Render(in engine.RenderInput) (engine.Desired, error) {
 		},
 		Bootstrap: bootstrapSQL(c.ID, size, c.Spec.StorageGiB),
 		Expect: engine.Expectation{
-			Pods:        len(serverHosts) + size.KeeperReplicas,
-			ServerHosts: len(serverHosts),
-			KeeperNodes: size.KeeperReplicas,
+			Roles: []engine.PodExpect{
+				{Role: ComponentServer, Count: len(serverHosts), Image: "clickhouse/clickhouse-server:" + c.Spec.ServerVersion, CPU: size.CPU, Memory: size.Memory},
+				{Role: ComponentKeeper, Count: size.KeeperReplicas, Image: "clickhouse/clickhouse-keeper:" + c.Spec.KeeperImageVersion()},
+			},
+			ServerVersion: c.Spec.ServerVersion,
+			Pods:          len(serverHosts) + size.KeeperReplicas,
+			ServerHosts:   len(serverHosts),
+			KeeperNodes:   size.KeeperReplicas,
 		},
 	}
 	if c.Spec.Tier == model.TierDedicated {
@@ -442,6 +447,16 @@ func server(n names, c model.Cluster, size model.Size, cell model.Cell) engine.O
 			"defaults": map[string]any{"templates": map[string]any{
 				"podTemplate": "server", "dataVolumeClaimTemplate": "data", "serviceTemplate": "client",
 			}},
+			// Rolling changes (M5, design §8.5): the operator restarts one host at a time and,
+			// before it goes on to the next, waits for the restarted host to pass its startup and
+			// readiness probes, to be included in the cluster again, for the replicas to catch up
+			// (absolute delay below 10 s), and, before it stops a host, for that host's running
+			// queries to finish.
+			"reconcile": map[string]any{"host": map[string]any{"wait": map[string]any{
+				"exclude": "yes", "include": "yes", "queries": "yes",
+				"replicas": map[string]any{"all": "yes", "new": "yes", "delay": reconcileReplicaDelaySeconds},
+				"probes":   map[string]any{"startup": "yes", "readiness": "yes"},
+			}}},
 			// The operator connects over HTTPS and verifies against the cell CA.
 			"security": map[string]any{"clickhouse": map[string]any{"tls": map[string]any{
 				"verify": "Strict", "rootCASecretRef": map[string]any{"name": certSecret, "key": "ca.crt"},
@@ -462,7 +477,7 @@ func server(n names, c model.Cluster, size model.Size, cell model.Cell) engine.O
 					"layout": map[string]any{"shardsCount": c.Spec.Shards, "replicasCount": c.Spec.ReplicasPerShard},
 				}},
 				"users":    users(),
-				"profiles": profiles(size, c.Spec.StorageGiB),
+				"profiles": profiles(size, c.Spec.StorageGiB, c.Spec.CompatibilityPin),
 				"settings": serverSettings(n, c, size, cell),
 				"files":    map[string]any{"basalt-openssl.xml": opensslXML, "basalt-access.xml": accessXML, "users.d/zz-basalt-default-user.xml": defaultUserXML},
 			},
@@ -516,7 +531,7 @@ func serverMemoryLimit(size model.Size) int64 { return size.MemoryBytes * 85 / 1
 
 // Tenant limits live in the server default profile, so users the tenant creates without any
 // role or profile inherit them (review A1, tested).
-func profiles(size model.Size, storageGiB int) map[string]any {
+func profiles(size model.Size, storageGiB int, compatibilityPin string) map[string]any {
 	mem := strconv.FormatInt(size.MemoryBytes*8/10, 10) // per-query cap: 80% of the pod's memory
 	p := map[string]any{
 		"default/max_memory_usage":                                                                     mem,
@@ -544,6 +559,10 @@ func profiles(size model.Size, storageGiB int) map[string]any {
 	}
 	for k, v := range stabilityProfile(storageGiB) {
 		p[k] = v
+	}
+	if compatibilityPin != "" {
+		// a new binary behaves like the previous minor version until the upgrade is finalised
+		p["default/compatibility"] = compatibilityPin
 	}
 	return p
 }
@@ -587,6 +606,10 @@ func serverSettings(n names, c model.Cluster, size model.Size, cell model.Cell) 
 	}
 	return s
 }
+
+// reconcileReplicaDelaySeconds is the replication delay below which the operator considers a
+// replica caught up (design §8.5: absolute_delay < 10 s).
+const reconcileReplicaDelaySeconds = 10
 
 // startupProbe budget: 5s x 120 = 10 minutes for a server to open its HTTPS port.
 const (

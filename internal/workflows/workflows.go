@@ -30,6 +30,10 @@ type Input struct {
 var (
 	ConvergeTimeout = 20 * time.Minute
 	DeleteTimeout   = 10 * time.Minute
+	// UpdateTimeout bounds one rolling change. A server restart under gVisor takes a few
+	// minutes and the operator waits for replicas to catch up between hosts.
+	UpdateTimeout   = 40 * time.Minute
+	RollbackTimeout = 40 * time.Minute
 )
 
 var retry = &temporal.RetryPolicy{
@@ -146,6 +150,8 @@ func WorkflowFor(kind model.OperationKind) (any, error) {
 		return CreateCluster, nil
 	case model.OpDeleteCluster:
 		return DeleteCluster, nil
+	case model.OpUpdateCluster:
+		return UpdateCluster, nil
 	}
 	return nil, fmt.Errorf("no workflow for %s", kind)
 }
@@ -165,4 +171,60 @@ func Start(ctx context.Context, c client.Client, op model.Operation) error {
 		Memo:                     map[string]any{"operationId": op.ID},
 	}, wf, Input{OperationID: op.ID, ClusterID: op.ClusterID})
 	return err
+}
+
+// UpdateCluster changes a live cluster (vertical scale, replica count, server version):
+// hold the extra capacity → publish the new desired state → wait until every pod runs it and
+// the cluster is healthy → swap the reservation. The operator does the rolling, one host at a
+// time, waiting for replicas to catch up between hosts (render: reconcile.host.wait).
+//
+// If the change does not converge, the previous spec is published again and awaited, and the
+// operation fails with the reason; the cluster is ACTIVE on its old spec if that worked.
+func UpdateCluster(ctx workflow.Context, in Input) error {
+	sctx := shortOpts(ctx)
+	if err := workflow.ExecuteActivity(sctx, a.MarkOperationRunning, in.OperationID).Get(ctx, nil); err != nil {
+		return err
+	}
+	if err := workflow.ExecuteActivity(sctx, a.ReserveUpdateCapacity, ReserveInput{in.OperationID, in.ClusterID}).Get(ctx, nil); err != nil {
+		// nothing was changed: back to the previous spec
+		_ = workflow.ExecuteActivity(sctx, a.FailUpdate, FailUpdateInput{in.OperationID, in.ClusterID, errMessage(err), true}).Get(ctx, nil)
+		return err
+	}
+	var gen int64
+	err := workflow.ExecuteActivity(sctx, a.PublishDesired, PublishInput{ClusterID: in.ClusterID}).Get(ctx, &gen)
+	if err == nil {
+		var h engine.Health
+		err = workflow.ExecuteActivity(waitOpts(ctx, UpdateTimeout), a.WaitForPhase,
+			WaitInput{ClusterID: in.ClusterID, Generation: gen, Want: engine.PhaseReady, Progress: model.ClusterUpdating}).Get(ctx, &h)
+	}
+	if err != nil {
+		rollbackUpdate(ctx, in, errMessage(err))
+		return err
+	}
+	return workflow.ExecuteActivity(sctx, a.FinishUpdate, FinishInput{in.OperationID, in.ClusterID}).Get(ctx, nil)
+}
+
+// rollbackUpdate puts the previous spec back and waits for it. It runs on a disconnected context
+// so that it completes even if the workflow is being cancelled.
+func rollbackUpdate(ctx workflow.Context, in Input, reason string) {
+	dctx, _ := workflow.NewDisconnectedContext(ctx)
+	sctx := shortOpts(dctx)
+	rolledBack := false
+	if err := workflow.ExecuteActivity(sctx, a.RevertSpec, in.ClusterID).Get(dctx, nil); err == nil {
+		var gen int64
+		if err := workflow.ExecuteActivity(sctx, a.PublishDesired, PublishInput{ClusterID: in.ClusterID}).Get(dctx, &gen); err == nil {
+			var h engine.Health
+			if err := workflow.ExecuteActivity(waitOpts(dctx, RollbackTimeout), a.WaitForPhase,
+				WaitInput{ClusterID: in.ClusterID, Generation: gen, Want: engine.PhaseReady, Progress: model.ClusterUpdating}).Get(dctx, &h); err == nil {
+				rolledBack = true
+			}
+		}
+	}
+	msg := "update failed: " + reason
+	if rolledBack {
+		msg += " (rolled back to the previous spec)"
+	} else {
+		msg += " (the rollback did not converge either; the cluster needs attention)"
+	}
+	_ = workflow.ExecuteActivity(sctx, a.FailUpdate, FailUpdateInput{in.OperationID, in.ClusterID, msg, rolledBack}).Get(dctx, nil)
 }

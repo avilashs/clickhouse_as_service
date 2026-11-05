@@ -94,7 +94,17 @@ expect:
   keeperNodes: 3
   pods: 7
   poolNodes: 4
+  roles:
+  - count: 4
+    cpu: "1"
+    image: clickhouse/clickhouse-server:26.8.34.13
+    memory: 2Gi
+    role: clickhouse-server
+  - count: 3
+    image: clickhouse/clickhouse-keeper:26.8.34.13
+    role: keeper
   serverHosts: 4
+  serverVersion: 26.8.34.13
 namespace: ch-cded1234abcd
 nodePools:
 - instanceType: kind
@@ -599,6 +609,19 @@ objects:
         dataVolumeClaimTemplate: data
         podTemplate: server
         serviceTemplate: client
+    reconcile:
+      host:
+        wait:
+          exclude: "yes"
+          include: "yes"
+          probes:
+            readiness: "yes"
+            startup: "yes"
+          queries: "yes"
+          replicas:
+            all: "yes"
+            delay: 10
+            new: "yes"
     security:
       clickhouse:
         tls:
